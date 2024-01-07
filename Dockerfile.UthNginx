@@ -8,7 +8,7 @@ RUN apk update && \
 RUN rm /etc/nginx/nginx.conf
 
 # Copy your Nginx configuration
-COPY auth.nginx.conf /etc/nginx/sites-available/ntfy
+COPY nginx.conf /etc/nginx/sites-available/ntfy
 RUN ln -s /etc/nginx/sites-available/ntfy /etc/nginx/sites-enabled
 
 # Copy ntfy configuration
