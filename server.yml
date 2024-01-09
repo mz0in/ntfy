@@ -11,8 +11,7 @@
 # - iOS push notifications for self-hosted servers (to calculate the Firebase poll_request topic)
 # - Matrix Push Gateway (to validate that the pushkey is correct)
 #
-#
-base-url:ntfy.z0in.cc
+#base-url:ntfy.z0in.cc
 
 # Listen address for the HTTP & HTTPS web server. If "listen-https" is set, you must also
 # set "key-file" and "cert-file". Format: [<ip>]:<port>, e.g. "1.2.3.4:8080".
@@ -20,10 +19,8 @@ base-url:ntfy.z0in.cc
 # To listen on all interfaces, you may omit the IP address, e.g. ":443".
 # To disable HTTP, set "listen-http" to "-".
 #
-# 
-listen-http: ":80"
-# 
-listen-https:":443"
+# listen-http: ":80"
+# listen-https:":443"
 
 # Listen on a Unix socket, e.g. /var/lib/ntfy/ntfy.sock
 # This can be useful to avoid port issues on local systems, and to simplify permissions.
@@ -71,16 +68,11 @@ listen-https:":443"
 #   If you are running ntfy with systemd, make sure this cache file is owned by the
 #   ntfy user and group by running: chown ntfy.ntfy <filename>.
 #
-# 
-cache-file: <filename>
-# 
-cache-duration: "12h"
-# 
-cache-startup-queries:
-# 
-cache-batch-size: 0
-# 
-cache-batch-timeout: "0ms"
+# cache-file: <filename>
+# cache-duration: "12h"
+# cache-startup-queries:
+# cache-batch-size: 0
+# cache-batch-timeout: "0ms"
 
 # If set, access to the ntfy server and API can be controlled on a granular level using
 # the 'ntfy user' and 'ntfy access' commands. See the --help pages for details, or check the docs.
@@ -99,12 +91,9 @@ cache-batch-timeout: "0ms"
 #   If you are running ntfy with systemd, make sure this user database file is owned by the
 #   ntfy user and group by running: chown ntfy.ntfy <filename>.
 #
-# 
-auth-file: <filename>
-# 
-auth-default-access: "read-write"
-# 
-auth-startup-queries:
+# auth-file: <filename>
+# auth-default-access: "read-write"
+# auth-startup-queries:
 
 # If set, the X-Forwarded-For header is used to determine the visitor IP address
 # instead of the remote address of the connection.
@@ -112,8 +101,7 @@ auth-startup-queries:
 # WARNING: If you are behind a proxy, you must set this, otherwise all visitors are rate limited
 #          as if they are one.
 #
-# 
-behind-proxy: yes
+# behind-proxy: yes
 
 # If enabled, clients can attach files to notifications as attachments. Minimum settings to enable attachments
 # are "attachment-cache-dir" and "base-url".
@@ -227,12 +215,9 @@ behind-proxy: yes
 # - enable-login allows users to log in via the web app, or API
 # - enable-reservations allows users to reserve topics (if their tier allows it)
 #
-# 
-enable-signup: true
-# 
-enable-login: true
-# 
-enable-reservations: true
+# enable-signup: true
+# enable-login: true
+# enable-reservations: true
 
 # Server URL of a Firebase/APNS-connected ntfy server (likely "https://ntfy.sh").
 #
@@ -247,9 +232,8 @@ enable-reservations: true
 # - upstream-base-url is the base URL of the upstream server. Should be "https://ntfy.sh".
 # - upstream-access-token is the token used to authenticate with the upstream server. This is only required
 #   if you exceed the upstream rate limits, or the uptream server requires authentication.
-#
-upstream-base-url: "https://ntfy.z0in.cc"
-upstream-access-token: "Zain0000Zain"
+# upstream-base-url: "https://ntfy.z0in.cc"
+# upstream-access-token: "Zain0000Zain"
 
 # Rate limiting: Total number of topics before the server rejects new topics.
 #
@@ -287,10 +271,8 @@ upstream-access-token: "Zain0000Zain"
 # - visitor-attachment-total-size-limit is the total storage limit used for attachments per visitor
 # - visitor-attachment-daily-bandwidth-limit is the total daily attachment download/upload traffic limit per visitor
 #
-# 
-visitor-attachment-total-size-limit: "100M"
-# 
-visitor-attachment-daily-bandwidth-limit: "500M"
+# visitor-attachment-total-size-limit: "100M"
+# visitor-attachment-daily-bandwidth-limit: "500M"
 
 # Rate limiting: Enable subscriber-based rate limiting (mostly used for UnifiedPush)
 #
