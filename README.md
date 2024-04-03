@@ -9,7 +9,6 @@
 [![Discord](https://img.shields.io/discord/874398661709295626?label=Discord)](https://discord.gg/cT7ECsZj9w)
 [![Matrix](https://img.shields.io/matrix/ntfy:matrix.org?label=Matrix)](https://matrix.to/#/#ntfy:matrix.org)
 [![Matrix space](https://img.shields.io/matrix/ntfy-space:matrix.org?label=Matrix+space)](https://matrix.to/#/#ntfy-space:matrix.org)
-[![Lemmy](https://img.shields.io/badge/Lemmy-discuss-green)](https://discuss.ntfy.sh/c/ntfy)
 [![Healthcheck](https://healthchecks.io/badge/68b65976-b3b0-4102-aec9-980921/kcoEgrLY.svg)](https://ntfy.statuspage.io/)
 [![Gitpod](https://img.shields.io/badge/Contribute%20with-Gitpod-908a85?logo=gitpod)](https://gitpod.io/#https://github.com/binwiederhier/ntfy)
 
@@ -50,7 +49,6 @@ works best for you:
 
 * [Discord server](https://discord.gg/cT7ECsZj9w) - direct chat with the community
 * [Matrix room #ntfy](https://matrix.to/#/#ntfy:matrix.org) (+ [Matrix space](https://matrix.to/#/#ntfy-space:matrix.org)) - same chat, bridged from Discord
-* [Lemmy discussion board](https://discuss.ntfy.sh/c/ntfy) - asynchronous forum (_new as of June 2023_)
 * [GitHub issues](https://github.com/binwiederhier/ntfy/issues) - questions, features, bugs
 
 ## Announcements/beta testers
@@ -71,7 +69,7 @@ for the server and the Android app. Or, if you'd like to help translate 🇩🇪
 ## Sponsors
 I have just very recently started accepting donations via [GitHub Sponsors](https://github.com/sponsors/binwiederhier),
 and [Liberapay](https://liberapay.com/ntfy). I would be humbled if you helped me carry the server and developer 
-account costs. Even small donations are very much appreciated. A big fat **Thank You** to the folks already sponsoring ntfy:
+account costs. Even small donations are very much appreciated. A big fat **Thank You** to the folks who have sponsored ntfy in the past, or are still sponsoring ntfy:
 
 <a href="https://github.com/neutralinsomniac"><img src="https://github.com/neutralinsomniac.png" width="40px" /></a>
 <a href="https://github.com/aspyct"><img src="https://github.com/aspyct.png" width="40px" /></a>
@@ -168,6 +166,29 @@ account costs. Even small donations are very much appreciated. A big fat **Thank
 <a href="https://github.com/ubipo"><img src="https://github.com/ubipo.png" width="40px" /></a>
 <a href="https://github.com/tka85"><img src="https://github.com/tka85.png" width="40px" /></a>
 <a href="https://github.com/beekeeb"><img src="https://github.com/beekeeb.png" width="40px" /></a>
+<a href="https://github.com/Emiliaaah"><img src="https://github.com/Emiliaaah.png" width="40px" /></a>
+<a href="https://github.com/zark0s"><img src="https://github.com/zark0s.png" width="40px" /></a>
+<a href="https://github.com/tomershvueli"><img src="https://github.com/tomershvueli.png" width="40px" /></a>
+<a href="https://github.com/CataIana"><img src="https://github.com/CataIana.png" width="40px" /></a>
+<a href="https://github.com/ajay-actuary"><img src="https://github.com/ajay-actuary.png" width="40px" /></a>
+<a href="https://github.com/mursec"><img src="https://github.com/mursec.png" width="40px" /></a>
+<a href="https://github.com/FrameXX"><img src="https://github.com/FrameXX.png" width="40px" /></a>
+<a href="https://github.com/vovayartsev"><img src="https://github.com/vovayartsev.png" width="40px" /></a>
+<a href="https://github.com/dwain-lab"><img src="https://github.com/dwain-lab.png" width="40px" /></a>
+<a href="https://github.com/brookmg"><img src="https://github.com/brookmg.png" width="40px" /></a>
+<a href="https://github.com/siebej"><img src="https://github.com/siebej.png" width="40px" /></a>
+<a href="https://github.com/rxsantos"><img src="https://github.com/rxsantos.png" width="40px" /></a>
+<a href="https://github.com/hermannx5"><img src="https://github.com/hermannx5.png" width="40px" /></a>
+<a href="https://github.com/rwxd"><img src="https://github.com/rwxd.png" width="40px" /></a>
+<a href="https://github.com/Integral-Tech"><img src="https://github.com/Integral-Tech.png" width="40px" /></a>
+<a href="https://github.com/TheTomik1"><img src="https://github.com/TheTomik1.png" width="40px" /></a>
+<a href="https://github.com/dav23r"><img src="https://github.com/dav23r.png" width="40px" /></a>
+<a href="https://github.com/stannynuytkens"><img src="https://github.com/stannynuytkens.png" width="40px" /></a>
+<a href="https://github.com/danbartram"><img src="https://github.com/danbartram.png" width="40px" /></a>
+<a href="https://github.com/arthurgleckler"><img src="https://github.com/arthurgleckler.png" width="40px" /></a>
+<a href="https://github.com/tomroth04"><img src="https://github.com/tomroth04.png" width="40px" /></a>
+<a href="https://github.com/Circenn5130"><img src="https://github.com/Circenn5130.png" width="40px" /></a>
+<a href="https://github.com/jceloria"><img src="https://github.com/jceloria.png" width="40px" /></a>
 
 I'd also like to thank JetBrains for their awesome [IntelliJ IDEA](https://www.jetbrains.com/idea/),
 and [DigitalOcean](https://m.do.co/c/442b929528db) (*referral link*) for supporting the project:

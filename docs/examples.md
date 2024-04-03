@@ -162,12 +162,21 @@ services:
     image: containrrr/watchtower
     environment:
       - WATCHTOWER_NOTIFICATIONS=shoutrrr
+      - WATCHTOWER_NOTIFICATION_SKIP_TITLE=True
       - WATCHTOWER_NOTIFICATION_URL=ntfy://ntfy.sh/my_watchtower_topic?title=WatchtowerUpdates
 ```
+
+The environment variable `WATCHTOWER_NOTIFICATION_SKIP_TITLE` is required to prevent Watchtower from [replacing the `title` query parameter](https://containrrr.dev/watchtower/notifications/#settings). If omitted, the provided notification title will not be used.
 
 Or, if you only want to send notifications using shoutrrr:
 ```
 shoutrrr send -u "ntfy://ntfy.sh/my_watchtower_topic?title=WatchtowerUpdates" -m "testMessage"
+```
+
+Authentication tokens are also supported via the generic webhook and authorization header using this url format (replace the domain, topic and token with your own):
+
+```
+generic+https://DOMAIN/TOPIC?@authorization=Bearer+TOKEN`
 ```
 
 ## Sonarr, Radarr, Lidarr, Readarr, Prowlarr, SABnzbd
@@ -597,6 +606,8 @@ Add notification on Rundeck (attachment type must be: `Attached as file to email
 This will only work on selfhosted [traccar](https://www.traccar.org/) ([Github](https://github.com/traccar/traccar)) instances, as you need to be able to set `sms.http.*` keys, which is not possible through the UI attributes
 
 The easiest way to integrate traccar with ntfy, is to configure ntfy as the SMS provider for your instance. You then can set your ntfy topic as your account's phone number in traccar. Sending the email notifications to ntfy will not work, as ntfy does not support HTML emails.
+
+**Info:** Add a phone number to your traccar account not in device, as otherwise it will not try to send SMS.
 
 **Caution:** JSON publishing is only possible, when POST-ing to the root URL of the ntfy instance. (see [documentation](publish.md#publish-as-json))
 ```xml

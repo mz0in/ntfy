@@ -10,6 +10,7 @@ import Navigation from "./Navigation";
 
 const Messaging = (props) => {
   const [message, setMessage] = useState("");
+  const [attachFile, setAttachFile] = useState(null);
   const [dialogKey, setDialogKey] = useState(0);
 
   const { dialogOpenMode } = props;
@@ -22,12 +23,30 @@ const Messaging = (props) => {
   const handleDialogClose = () => {
     props.onDialogOpenModeChange("");
     setDialogKey((prev) => prev + 1);
+    setAttachFile(null);
+  };
+
+  const getPastedImage = (ev) => {
+    const { items } = ev.clipboardData;
+    for (let i = 0; i < items.length; i += 1) {
+      if (items[i].type.indexOf("image") !== -1) {
+        return items[i].getAsFile();
+      }
+    }
+    return null;
   };
 
   return (
     <>
       {subscription && (
-        <MessageBar subscription={subscription} message={message} onMessageChange={setMessage} onOpenDialogClick={handleOpenDialogClick} />
+        <MessageBar
+          subscription={subscription}
+          message={message}
+          onMessageChange={setMessage}
+          onFilePasted={setAttachFile}
+          onOpenDialogClick={handleOpenDialogClick}
+          getPastedImage={getPastedImage}
+        />
       )}
       <PublishDialog
         key={`publishDialog${dialogKey}`} // Resets dialog when canceled/closed
@@ -35,6 +54,8 @@ const Messaging = (props) => {
         baseUrl={subscription?.baseUrl ?? config.base_url}
         topic={subscription?.topic ?? ""}
         message={message}
+        attachFile={attachFile}
+        getPastedImage={getPastedImage}
         onClose={handleDialogClose}
         onDragEnter={() => props.onDialogOpenModeChange((prev) => prev || PublishDialog.OPEN_MODE_DRAG)} // Only update if not already open
         onResetOpenMode={() => props.onDialogOpenModeChange(PublishDialog.OPEN_MODE_DEFAULT)}
@@ -56,6 +77,15 @@ const MessageBar = (props) => {
     }
     props.onMessageChange("");
   };
+
+  const handlePaste = (ev) => {
+    const blob = props.getPastedImage(ev);
+    if (blob) {
+      props.onFilePasted(blob);
+      props.onOpenDialogClick();
+    }
+  };
+
   return (
     <Paper
       elevation={3}
@@ -89,6 +119,7 @@ const MessageBar = (props) => {
             handleSendClick();
           }
         }}
+        onPaste={handlePaste}
       />
       <IconButton color="inherit" size="large" edge="end" onClick={handleSendClick} aria-label={t("message_bar_publish")}>
         <SendIcon />

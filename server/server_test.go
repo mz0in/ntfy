@@ -1346,9 +1346,7 @@ func TestServer_PublishUnifiedPushBinary_AndPoll(t *testing.T) {
 	s := newTestServer(t, newTestConfig(t))
 
 	// Register a UnifiedPush subscriber
-	response := request(t, s, "GET", "/up123456789012/json?poll=1", "", map[string]string{
-		"Rate-Topics": "up123456789012",
-	})
+	response := request(t, s, "GET", "/up123456789012/json?poll=1", "", nil)
 	require.Equal(t, 200, response.Code)
 
 	// Publish message to topic
@@ -1379,9 +1377,7 @@ func TestServer_PublishUnifiedPushBinary_Truncated(t *testing.T) {
 	s := newTestServer(t, newTestConfig(t))
 
 	// Register a UnifiedPush subscriber
-	response := request(t, s, "GET", "/mytopic/json?poll=1", "", map[string]string{
-		"Rate-Topics": "mytopic",
-	})
+	response := request(t, s, "GET", "/mytopic/json?poll=1", "", nil)
 	require.Equal(t, 200, response.Code)
 
 	// Publish message to topic
@@ -1400,9 +1396,7 @@ func TestServer_PublishUnifiedPushText(t *testing.T) {
 	s := newTestServer(t, newTestConfig(t))
 
 	// Register a UnifiedPush subscriber
-	response := request(t, s, "GET", "/mytopic/json?poll=1", "", map[string]string{
-		"Rate-Topics": "mytopic",
-	})
+	response := request(t, s, "GET", "/mytopic/json?poll=1", "", nil)
 	require.Equal(t, 200, response.Code)
 
 	// Publish UnifiedPush text message
@@ -1434,9 +1428,7 @@ func TestServer_MatrixGateway_Discovery_Failure_Unconfigured(t *testing.T) {
 func TestServer_MatrixGateway_Push_Success(t *testing.T) {
 	s := newTestServer(t, newTestConfig(t))
 
-	response := request(t, s, "GET", "/mytopic/json?poll=1", "", map[string]string{
-		"Rate-Topics": "mytopic", // Register first!
-	})
+	response := request(t, s, "GET", "/mytopic/json?poll=1", "", nil)
 	require.Equal(t, 200, response.Code)
 
 	notification := `{"notification":{"devices":[{"pushkey":"http://127.0.0.1:12345/mytopic?up=1"}]}}`
@@ -2266,16 +2258,14 @@ func TestServer_SubscriberRateLimiting_Success(t *testing.T) {
 	c.VisitorSubscriberRateLimiting = true
 	s := newTestServer(t, c)
 
-	// "Register" visitor 1.2.3.4 to topic "subscriber1topic" as a rate limit visitor
+	// "Register" visitor 1.2.3.4 to topic "upAAAAAAAAAAAA" as a rate limit visitor
 	subscriber1Fn := func(r *http.Request) {
 		r.RemoteAddr = "1.2.3.4"
 	}
-	rr := request(t, s, "GET", "/subscriber1topic/json?poll=1", "", map[string]string{
-		"Rate-Topics": "subscriber1topic",
-	}, subscriber1Fn)
+	rr := request(t, s, "GET", "/upAAAAAAAAAAAA/json?poll=1", "", nil, subscriber1Fn)
 	require.Equal(t, 200, rr.Code)
 	require.Equal(t, "", rr.Body.String())
-	require.Equal(t, "1.2.3.4", s.topics["subscriber1topic"].rateVisitor.ip.String())
+	require.Equal(t, "1.2.3.4", s.topics["upAAAAAAAAAAAA"].rateVisitor.ip.String())
 
 	// "Register" visitor 8.7.7.1 to topic "up012345678912" as a rate limit visitor (implicitly via topic name)
 	subscriber2Fn := func(r *http.Request) {
@@ -2289,10 +2279,10 @@ func TestServer_SubscriberRateLimiting_Success(t *testing.T) {
 	// Publish 2 messages to "subscriber1topic" as visitor 9.9.9.9. It'd be 3 normally, but the
 	// GET request before is also counted towards the request limiter.
 	for i := 0; i < 2; i++ {
-		rr := request(t, s, "PUT", "/subscriber1topic", "some message", nil)
+		rr := request(t, s, "PUT", "/upAAAAAAAAAAAA", "some message", nil)
 		require.Equal(t, 200, rr.Code)
 	}
-	rr = request(t, s, "PUT", "/subscriber1topic", "some message", nil)
+	rr = request(t, s, "PUT", "/upAAAAAAAAAAAA", "some message", nil)
 	require.Equal(t, 429, rr.Code)
 
 	// Publish another 2 messages to "up012345678912" as visitor 9.9.9.9
@@ -2325,14 +2315,12 @@ func TestServer_SubscriberRateLimiting_NotEnabled_Failed(t *testing.T) {
 	// Subscriber rate limiting is disabled!
 
 	// Registering visitor 1.2.3.4 to topic has no effect
-	rr := request(t, s, "GET", "/subscriber1topic/json?poll=1", "", map[string]string{
-		"Rate-Topics": "subscriber1topic",
-	}, func(r *http.Request) {
+	rr := request(t, s, "GET", "/upAAAAAAAAAAAA/json?poll=1", "", nil, func(r *http.Request) {
 		r.RemoteAddr = "1.2.3.4"
 	})
 	require.Equal(t, 200, rr.Code)
 	require.Equal(t, "", rr.Body.String())
-	require.Nil(t, s.topics["subscriber1topic"].rateVisitor)
+	require.Nil(t, s.topics["upAAAAAAAAAAAA"].rateVisitor)
 
 	// Registering visitor 8.7.7.1 to topic has no effect
 	rr = request(t, s, "GET", "/up012345678912/json?poll=1", "", nil, func(r *http.Request) {
@@ -2342,7 +2330,7 @@ func TestServer_SubscriberRateLimiting_NotEnabled_Failed(t *testing.T) {
 	require.Equal(t, "", rr.Body.String())
 	require.Nil(t, s.topics["up012345678912"].rateVisitor)
 
-	// Publish 3 messages to "subscriber1topic" as visitor 9.9.9.9
+	// Publish 3 messages to "upAAAAAAAAAAAA" as visitor 9.9.9.9
 	for i := 0; i < 3; i++ {
 		rr := request(t, s, "PUT", "/subscriber1topic", "some message", nil)
 		require.Equal(t, 200, rr.Code)
@@ -2415,78 +2403,28 @@ func TestServer_SubscriberRateLimiting_VisitorExpiration(t *testing.T) {
 	subscriberFn := func(r *http.Request) {
 		r.RemoteAddr = "1.2.3.4"
 	}
-	rr := request(t, s, "GET", "/mytopic/json?poll=1", "", map[string]string{
-		"rate-topics": "mytopic",
-	}, subscriberFn)
+	rr := request(t, s, "GET", "/upAAAAAAAAAAAA/json?poll=1", "", nil, subscriberFn)
 	require.Equal(t, 200, rr.Code)
-	require.Equal(t, "1.2.3.4", s.topics["mytopic"].rateVisitor.ip.String())
-	require.Equal(t, s.visitors["ip:1.2.3.4"], s.topics["mytopic"].rateVisitor)
+	require.Equal(t, "1.2.3.4", s.topics["upAAAAAAAAAAAA"].rateVisitor.ip.String())
+	require.Equal(t, s.visitors["ip:1.2.3.4"], s.topics["upAAAAAAAAAAAA"].rateVisitor)
 
 	// Publish message, observe rate visitor tokens being decreased
-	response := request(t, s, "POST", "/mytopic", "some message", nil)
+	response := request(t, s, "POST", "/upAAAAAAAAAAAA", "some message", nil)
 	require.Equal(t, 200, response.Code)
 	require.Equal(t, int64(0), s.visitors["ip:9.9.9.9"].messagesLimiter.Value())
-	require.Equal(t, int64(1), s.topics["mytopic"].rateVisitor.messagesLimiter.Value())
-	require.Equal(t, s.visitors["ip:1.2.3.4"], s.topics["mytopic"].rateVisitor)
+	require.Equal(t, int64(1), s.topics["upAAAAAAAAAAAA"].rateVisitor.messagesLimiter.Value())
+	require.Equal(t, s.visitors["ip:1.2.3.4"], s.topics["upAAAAAAAAAAAA"].rateVisitor)
 
 	// Expire visitor
 	s.visitors["ip:1.2.3.4"].seen = time.Now().Add(-1 * 25 * time.Hour)
 	s.pruneVisitors()
 
 	// Publish message again, observe that rateVisitor is not used anymore and is reset
-	response = request(t, s, "POST", "/mytopic", "some message", nil)
+	response = request(t, s, "POST", "/upAAAAAAAAAAAA", "some message", nil)
 	require.Equal(t, 200, response.Code)
 	require.Equal(t, int64(1), s.visitors["ip:9.9.9.9"].messagesLimiter.Value())
-	require.Nil(t, s.topics["mytopic"].rateVisitor)
+	require.Nil(t, s.topics["upAAAAAAAAAAAA"].rateVisitor)
 	require.Nil(t, s.visitors["ip:1.2.3.4"])
-}
-
-func TestServer_SubscriberRateLimiting_ProtectedTopics(t *testing.T) {
-	c := newTestConfigWithAuthFile(t)
-	c.AuthDefault = user.PermissionDenyAll
-	c.VisitorSubscriberRateLimiting = true
-	s := newTestServer(t, c)
-
-	// Create some ACLs
-	require.Nil(t, s.userManager.AddTier(&user.Tier{
-		Code:         "test",
-		MessageLimit: 5,
-	}))
-	require.Nil(t, s.userManager.AddUser("ben", "ben", user.RoleUser))
-	require.Nil(t, s.userManager.ChangeTier("ben", "test"))
-	require.Nil(t, s.userManager.AllowAccess("ben", "announcements", user.PermissionReadWrite))
-	require.Nil(t, s.userManager.AllowAccess(user.Everyone, "announcements", user.PermissionRead))
-	require.Nil(t, s.userManager.AllowAccess(user.Everyone, "public_topic", user.PermissionReadWrite))
-
-	require.Nil(t, s.userManager.AddUser("phil", "phil", user.RoleUser))
-	require.Nil(t, s.userManager.ChangeTier("phil", "test"))
-	require.Nil(t, s.userManager.AddReservation("phil", "reserved-for-phil", user.PermissionReadWrite))
-
-	// Set rate visitor as user "phil" on topic
-	// - "reserved-for-phil": Allowed, because I am the owner
-	// - "public_topic": Allowed, because it has read-write permissions for everyone
-	// - "announcements": NOT allowed, because it has read-only permissions for everyone
-	rr := request(t, s, "GET", "/reserved-for-phil,public_topic,announcements/json?poll=1", "", map[string]string{
-		"Authorization": util.BasicAuth("phil", "phil"),
-		"Rate-Topics":   "reserved-for-phil,public_topic,announcements",
-	})
-	require.Equal(t, 200, rr.Code)
-	require.Equal(t, "phil", s.topics["reserved-for-phil"].rateVisitor.user.Name)
-	require.Equal(t, "phil", s.topics["public_topic"].rateVisitor.user.Name)
-	require.Nil(t, s.topics["announcements"].rateVisitor)
-
-	// Set rate visitor as user "ben" on topic
-	// - "reserved-for-phil": NOT allowed, because I am not the owner
-	// - "public_topic": Allowed, because it has read-write permissions for everyone
-	// - "announcements": Allowed, because I have read-write permissions
-	rr = request(t, s, "GET", "/reserved-for-phil,public_topic,announcements/json?poll=1", "", map[string]string{
-		"Authorization": util.BasicAuth("ben", "ben"),
-		"Rate-Topics":   "reserved-for-phil,public_topic,announcements",
-	})
-	require.Equal(t, 200, rr.Code)
-	require.Equal(t, "phil", s.topics["reserved-for-phil"].rateVisitor.user.Name)
-	require.Equal(t, "ben", s.topics["public_topic"].rateVisitor.user.Name)
-	require.Equal(t, "ben", s.topics["announcements"].rateVisitor.user.Name)
 }
 
 func TestServer_SubscriberRateLimiting_ProtectedTopics_WithDefaultReadWrite(t *testing.T) {
@@ -2556,6 +2494,7 @@ func TestServer_MessageHistoryAndStatsEndpoint(t *testing.T) {
 }
 
 func TestServer_MessageHistoryMaxSize(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, newTestConfig(t))
 	for i := 0; i < 20; i++ {
 		s.messages = int64(i)
@@ -2565,6 +2504,7 @@ func TestServer_MessageHistoryMaxSize(t *testing.T) {
 }
 
 func TestServer_MessageCountPersistence(t *testing.T) {
+	t.Parallel()
 	c := newTestConfig(t)
 	s := newTestServer(t, c)
 	s.messages = 1234
@@ -2580,6 +2520,7 @@ func TestServer_MessageCountPersistence(t *testing.T) {
 }
 
 func TestServer_PublishWithUTF8MimeHeader(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, newTestConfig(t))
 
 	response := request(t, s, "POST", "/mytopic", "some attachment", map[string]string{
@@ -2605,6 +2546,7 @@ func TestServer_PublishWithUTF8MimeHeader(t *testing.T) {
 }
 
 func TestServer_UpstreamBaseURL_Success(t *testing.T) {
+	t.Parallel()
 	var pollID atomic.Pointer[string]
 	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
@@ -2634,6 +2576,7 @@ func TestServer_UpstreamBaseURL_Success(t *testing.T) {
 }
 
 func TestServer_UpstreamBaseURL_With_Access_Token_Success(t *testing.T) {
+	t.Parallel()
 	var pollID atomic.Pointer[string]
 	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
@@ -2665,6 +2608,7 @@ func TestServer_UpstreamBaseURL_With_Access_Token_Success(t *testing.T) {
 }
 
 func TestServer_UpstreamBaseURL_DoNotForwardUnifiedPush(t *testing.T) {
+	t.Parallel()
 	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("UnifiedPush messages should not be forwarded")
 	}))
@@ -2685,6 +2629,212 @@ func TestServer_UpstreamBaseURL_DoNotForwardUnifiedPush(t *testing.T) {
 	// Forwarding is done asynchronously, so wait a bit.
 	// This ensures that the t.Fatal above is actually not triggered.
 	time.Sleep(500 * time.Millisecond)
+}
+
+func TestServer_MessageTemplate(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, newTestConfig(t))
+	response := request(t, s, "PUT", "/mytopic", `{"foo":"bar", "nested":{"title":"here"}}`, map[string]string{
+		"X-Message":  "{{.foo}}",
+		"X-Title":    "{{.nested.title}}",
+		"X-Template": "1",
+	})
+
+	require.Equal(t, 200, response.Code)
+	m := toMessage(t, response.Body.String())
+	require.Equal(t, "bar", m.Message)
+	require.Equal(t, "here", m.Title)
+}
+
+func TestServer_MessageTemplate_RepeatPlaceholder(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, newTestConfig(t))
+	response := request(t, s, "PUT", "/mytopic", `{"foo":"bar", "nested":{"title":"here"}}`, map[string]string{
+		"Message":  "{{.foo}} is {{.foo}}",
+		"Title":    "{{.nested.title}} is {{.nested.title}}",
+		"Template": "1",
+	})
+
+	require.Equal(t, 200, response.Code)
+	m := toMessage(t, response.Body.String())
+	require.Equal(t, "bar is bar", m.Message)
+	require.Equal(t, "here is here", m.Title)
+}
+
+func TestServer_MessageTemplate_JSONBody(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, newTestConfig(t))
+	body := `{"topic": "mytopic", "message": "{\"foo\":\"bar\",\"nested\":{\"title\":\"here\"}}"}`
+	response := request(t, s, "PUT", "/", body, map[string]string{
+		"m":   "{{.foo}}",
+		"t":   "{{.nested.title}}",
+		"tpl": "1",
+	})
+
+	require.Equal(t, 200, response.Code)
+	m := toMessage(t, response.Body.String())
+	require.Equal(t, "bar", m.Message)
+	require.Equal(t, "here", m.Title)
+}
+
+func TestServer_MessageTemplate_MalformedJSONBody(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, newTestConfig(t))
+	body := `{"topic": "mytopic", "message": "{\"foo\":\"bar\",\"nested\":{\"title\":\"here\"INVALID"}`
+	response := request(t, s, "PUT", "/", body, map[string]string{
+		"X-Message":  "{{.foo}}",
+		"X-Title":    "{{.nested.title}}",
+		"X-Template": "1",
+	})
+
+	require.Equal(t, 400, response.Code)
+	require.Equal(t, 40042, toHTTPError(t, response.Body.String()).Code)
+}
+
+func TestServer_MessageTemplate_PlaceholderTypo(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, newTestConfig(t))
+	response := request(t, s, "PUT", "/mytopic", `{"foo":"bar", "nested":{"title":"here"}}`, map[string]string{
+		"X-Message":  "{{.food}}",
+		"X-Title":    "{{.neste.title}}",
+		"X-Template": "1",
+	})
+
+	require.Equal(t, 200, response.Code)
+	m := toMessage(t, response.Body.String())
+	require.Equal(t, "<no value>", m.Message)
+	require.Equal(t, "<no value>", m.Title)
+}
+
+func TestServer_MessageTemplate_MultiplePlaceholders(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, newTestConfig(t))
+	response := request(t, s, "PUT", "/mytopic", `{"foo":"bar", "nested":{"title":"here"}}`, map[string]string{
+		"X-Message":  "{{.foo}} is {{.nested.title}}",
+		"X-Template": "1",
+	})
+
+	require.Equal(t, 200, response.Code)
+	m := toMessage(t, response.Body.String())
+	require.Equal(t, "bar is here", m.Message)
+}
+
+func TestServer_MessageTemplate_Range(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, newTestConfig(t))
+	jsonBody := `{"foo": "bar", "errors": [{"level": "severe", "url": "https://severe1.com"},{"level": "warning", "url": "https://warning.com"},{"level": "severe", "url": "https://severe2.com"}]}`
+	response := request(t, s, "PUT", "/mytopic", jsonBody, map[string]string{
+		"X-Message":  `Severe URLs:\n{{range .errors}}{{if eq .level "severe"}}- {{.url}}\n{{end}}{{end}}`,
+		"X-Template": "1",
+	})
+
+	require.Equal(t, 200, response.Code)
+	m := toMessage(t, response.Body.String())
+	require.Equal(t, "Severe URLs:\n- https://severe1.com\n- https://severe2.com\n", m.Message)
+}
+
+func TestServer_MessageTemplate_ExceedMessageSize_TemplatedMessageOK(t *testing.T) {
+	t.Parallel()
+	c := newTestConfig(t)
+	c.MessageSizeLimit = 25 // 25 < len(HTTP body) < 32k, and len(m.Message) < 25
+	s := newTestServer(t, c)
+	response := request(t, s, "PUT", "/mytopic", `{"foo":"bar", "nested":{"title":"here"}}`, map[string]string{
+		"X-Message":  "{{.foo}}",
+		"X-Title":    "{{.nested.title}}",
+		"X-Template": "yes",
+	})
+
+	require.Equal(t, 200, response.Code)
+	m := toMessage(t, response.Body.String())
+	require.Equal(t, "bar", m.Message)
+	require.Equal(t, "here", m.Title)
+}
+
+func TestServer_MessageTemplate_ExceedMessageSize_TemplatedMessageTooLong(t *testing.T) {
+	t.Parallel()
+	c := newTestConfig(t)
+	c.MessageSizeLimit = 21 // 21 < len(HTTP body) < 32k, but !len(m.Message) < 21
+	s := newTestServer(t, c)
+	response := request(t, s, "PUT", "/mytopic", `{"foo":"This is a long message"}`, map[string]string{
+		"X-Message":  "{{.foo}}",
+		"X-Template": "1",
+	})
+
+	require.Equal(t, 400, response.Code)
+	require.Equal(t, 40041, toHTTPError(t, response.Body.String()).Code)
+}
+
+func TestServer_MessageTemplate_Grafana(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, newTestConfig(t))
+	body := `{"receiver":"ntfy\\.example\\.com/alerts","status":"resolved","alerts":[{"status":"resolved","labels":{"alertname":"Load avg 15m too high","grafana_folder":"Node alerts","instance":"10.108.0.2:9100","job":"node-exporter"},"annotations":{"summary":"15m load average too high"},"startsAt":"2024-03-15T02:28:00Z","endsAt":"2024-03-15T02:42:00Z","generatorURL":"localhost:3000/alerting/grafana/NW9oDw-4z/view","fingerprint":"becbfb94bd81ef48","silenceURL":"localhost:3000/alerting/silence/new?alertmanager=grafana&matcher=alertname%3DLoad+avg+15m+too+high&matcher=grafana_folder%3DNode+alerts&matcher=instance%3D10.108.0.2%3A9100&matcher=job%3Dnode-exporter","dashboardURL":"","panelURL":"","values":{"B":18.98211314475876,"C":0},"valueString":"[ var='B' labels={__name__=node_load15, instance=10.108.0.2:9100, job=node-exporter} value=18.98211314475876 ], [ var='C' labels={__name__=node_load15, instance=10.108.0.2:9100, job=node-exporter} value=0 ]"}],"groupLabels":{"alertname":"Load avg 15m too high","grafana_folder":"Node alerts"},"commonLabels":{"alertname":"Load avg 15m too high","grafana_folder":"Node alerts","instance":"10.108.0.2:9100","job":"node-exporter"},"commonAnnotations":{"summary":"15m load average too high"},"externalURL":"localhost:3000/","version":"1","groupKey":"{}:{alertname=\"Load avg 15m too high\", grafana_folder=\"Node alerts\"}","truncatedAlerts":0,"orgId":1,"title":"[RESOLVED] Load avg 15m too high Node alerts (10.108.0.2:9100 node-exporter)","state":"ok","message":"**Resolved**\n\nValue: B=18.98211314475876, C=0\nLabels:\n - alertname = Load avg 15m too high\n - grafana_folder = Node alerts\n - instance = 10.108.0.2:9100\n - job = node-exporter\nAnnotations:\n - summary = 15m load average too high\nSource: localhost:3000/alerting/grafana/NW9oDw-4z/view\nSilence: localhost:3000/alerting/silence/new?alertmanager=grafana&matcher=alertname%3DLoad+avg+15m+too+high&matcher=grafana_folder%3DNode+alerts&matcher=instance%3D10.108.0.2%3A9100&matcher=job%3Dnode-exporter\n"}`
+	response := request(t, s, "PUT", "/mytopic?tpl=yes&title=Grafana+alert:+{{.title}}&message={{.message}}", body, nil)
+	require.Equal(t, 200, response.Code)
+	m := toMessage(t, response.Body.String())
+	require.Equal(t, "Grafana alert: [RESOLVED] Load avg 15m too high Node alerts (10.108.0.2:9100 node-exporter)", m.Title)
+	require.Equal(t, `**Resolved**
+
+Value: B=18.98211314475876, C=0
+Labels:
+ - alertname = Load avg 15m too high
+ - grafana_folder = Node alerts
+ - instance = 10.108.0.2:9100
+ - job = node-exporter
+Annotations:
+ - summary = 15m load average too high
+Source: localhost:3000/alerting/grafana/NW9oDw-4z/view
+Silence: localhost:3000/alerting/silence/new?alertmanager=grafana&matcher=alertname%3DLoad+avg+15m+too+high&matcher=grafana_folder%3DNode+alerts&matcher=instance%3D10.108.0.2%3A9100&matcher=job%3Dnode-exporter
+`, m.Message)
+}
+
+func TestServer_MessageTemplate_GitHub(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, newTestConfig(t))
+	body := `{"action":"opened","number":1,"pull_request":{"url":"https://api.github.com/repos/binwiederhier/dabble/pulls/1","id":1783420972,"node_id":"PR_kwDOHAbdo85qTNgs","html_url":"https://github.com/binwiederhier/dabble/pull/1","diff_url":"https://github.com/binwiederhier/dabble/pull/1.diff","patch_url":"https://github.com/binwiederhier/dabble/pull/1.patch","issue_url":"https://api.github.com/repos/binwiederhier/dabble/issues/1","number":1,"state":"open","locked":false,"title":"A sample PR from Phil","user":{"login":"binwiederhier","id":664597,"node_id":"MDQ6VXNlcjY2NDU5Nw==","avatar_url":"https://avatars.githubusercontent.com/u/664597?v=4","gravatar_id":"","url":"https://api.github.com/users/binwiederhier","html_url":"https://github.com/binwiederhier","followers_url":"https://api.github.com/users/binwiederhier/followers","following_url":"https://api.github.com/users/binwiederhier/following{/other_user}","gists_url":"https://api.github.com/users/binwiederhier/gists{/gist_id}","starred_url":"https://api.github.com/users/binwiederhier/starred{/owner}{/repo}","subscriptions_url":"https://api.github.com/users/binwiederhier/subscriptions","organizations_url":"https://api.github.com/users/binwiederhier/orgs","repos_url":"https://api.github.com/users/binwiederhier/repos","events_url":"https://api.github.com/users/binwiederhier/events{/privacy}","received_events_url":"https://api.github.com/users/binwiederhier/received_events","type":"User","site_admin":false},"body":null,"created_at":"2024-03-21T02:52:09Z","updated_at":"2024-03-21T02:52:09Z","closed_at":null,"merged_at":null,"merge_commit_sha":null,"assignee":null,"assignees":[],"requested_reviewers":[],"requested_teams":[],"labels":[],"milestone":null,"draft":false,"commits_url":"https://api.github.com/repos/binwiederhier/dabble/pulls/1/commits","review_comments_url":"https://api.github.com/repos/binwiederhier/dabble/pulls/1/comments","review_comment_url":"https://api.github.com/repos/binwiederhier/dabble/pulls/comments{/number}","comments_url":"https://api.github.com/repos/binwiederhier/dabble/issues/1/comments","statuses_url":"https://api.github.com/repos/binwiederhier/dabble/statuses/5703842cc5715ed1e358d23ebb693db09747ae9b","head":{"label":"binwiederhier:aa","ref":"aa","sha":"5703842cc5715ed1e358d23ebb693db09747ae9b","user":{"login":"binwiederhier","id":664597,"node_id":"MDQ6VXNlcjY2NDU5Nw==","avatar_url":"https://avatars.githubusercontent.com/u/664597?v=4","gravatar_id":"","url":"https://api.github.com/users/binwiederhier","html_url":"https://github.com/binwiederhier","followers_url":"https://api.github.com/users/binwiederhier/followers","following_url":"https://api.github.com/users/binwiederhier/following{/other_user}","gists_url":"https://api.github.com/users/binwiederhier/gists{/gist_id}","starred_url":"https://api.github.com/users/binwiederhier/starred{/owner}{/repo}","subscriptions_url":"https://api.github.com/users/binwiederhier/subscriptions","organizations_url":"https://api.github.com/users/binwiederhier/orgs","repos_url":"https://api.github.com/users/binwiederhier/repos","events_url":"https://api.github.com/users/binwiederhier/events{/privacy}","received_events_url":"https://api.github.com/users/binwiederhier/received_events","type":"User","site_admin":false},"repo":{"id":470212003,"node_id":"R_kgDOHAbdow","name":"dabble","full_name":"binwiederhier/dabble","private":false,"owner":{"login":"binwiederhier","id":664597,"node_id":"MDQ6VXNlcjY2NDU5Nw==","avatar_url":"https://avatars.githubusercontent.com/u/664597?v=4","gravatar_id":"","url":"https://api.github.com/users/binwiederhier","html_url":"https://github.com/binwiederhier","followers_url":"https://api.github.com/users/binwiederhier/followers","following_url":"https://api.github.com/users/binwiederhier/following{/other_user}","gists_url":"https://api.github.com/users/binwiederhier/gists{/gist_id}","starred_url":"https://api.github.com/users/binwiederhier/starred{/owner}{/repo}","subscriptions_url":"https://api.github.com/users/binwiederhier/subscriptions","organizations_url":"https://api.github.com/users/binwiederhier/orgs","repos_url":"https://api.github.com/users/binwiederhier/repos","events_url":"https://api.github.com/users/binwiederhier/events{/privacy}","received_events_url":"https://api.github.com/users/binwiederhier/received_events","type":"User","site_admin":false},"html_url":"https://github.com/binwiederhier/dabble","description":"A repo for dabbling","fork":false,"url":"https://api.github.com/repos/binwiederhier/dabble","forks_url":"https://api.github.com/repos/binwiederhier/dabble/forks","keys_url":"https://api.github.com/repos/binwiederhier/dabble/keys{/key_id}","collaborators_url":"https://api.github.com/repos/binwiederhier/dabble/collaborators{/collaborator}","teams_url":"https://api.github.com/repos/binwiederhier/dabble/teams","hooks_url":"https://api.github.com/repos/binwiederhier/dabble/hooks","issue_events_url":"https://api.github.com/repos/binwiederhier/dabble/issues/events{/number}","events_url":"https://api.github.com/repos/binwiederhier/dabble/events","assignees_url":"https://api.github.com/repos/binwiederhier/dabble/assignees{/user}","branches_url":"https://api.github.com/repos/binwiederhier/dabble/branches{/branch}","tags_url":"https://api.github.com/repos/binwiederhier/dabble/tags","blobs_url":"https://api.github.com/repos/binwiederhier/dabble/git/blobs{/sha}","git_tags_url":"https://api.github.com/repos/binwiederhier/dabble/git/tags{/sha}","git_refs_url":"https://api.github.com/repos/binwiederhier/dabble/git/refs{/sha}","trees_url":"https://api.github.com/repos/binwiederhier/dabble/git/trees{/sha}","statuses_url":"https://api.github.com/repos/binwiederhier/dabble/statuses/{sha}","languages_url":"https://api.github.com/repos/binwiederhier/dabble/languages","stargazers_url":"https://api.github.com/repos/binwiederhier/dabble/stargazers","contributors_url":"https://api.github.com/repos/binwiederhier/dabble/contributors","subscribers_url":"https://api.github.com/repos/binwiederhier/dabble/subscribers","subscription_url":"https://api.github.com/repos/binwiederhier/dabble/subscription","commits_url":"https://api.github.com/repos/binwiederhier/dabble/commits{/sha}","git_commits_url":"https://api.github.com/repos/binwiederhier/dabble/git/commits{/sha}","comments_url":"https://api.github.com/repos/binwiederhier/dabble/comments{/number}","issue_comment_url":"https://api.github.com/repos/binwiederhier/dabble/issues/comments{/number}","contents_url":"https://api.github.com/repos/binwiederhier/dabble/contents/{+path}","compare_url":"https://api.github.com/repos/binwiederhier/dabble/compare/{base}...{head}","merges_url":"https://api.github.com/repos/binwiederhier/dabble/merges","archive_url":"https://api.github.com/repos/binwiederhier/dabble/{archive_format}{/ref}","downloads_url":"https://api.github.com/repos/binwiederhier/dabble/downloads","issues_url":"https://api.github.com/repos/binwiederhier/dabble/issues{/number}","pulls_url":"https://api.github.com/repos/binwiederhier/dabble/pulls{/number}","milestones_url":"https://api.github.com/repos/binwiederhier/dabble/milestones{/number}","notifications_url":"https://api.github.com/repos/binwiederhier/dabble/notifications{?since,all,participating}","labels_url":"https://api.github.com/repos/binwiederhier/dabble/labels{/name}","releases_url":"https://api.github.com/repos/binwiederhier/dabble/releases{/id}","deployments_url":"https://api.github.com/repos/binwiederhier/dabble/deployments","created_at":"2022-03-15T15:06:17Z","updated_at":"2022-03-15T15:06:17Z","pushed_at":"2024-03-21T02:52:10Z","git_url":"git://github.com/binwiederhier/dabble.git","ssh_url":"git@github.com:binwiederhier/dabble.git","clone_url":"https://github.com/binwiederhier/dabble.git","svn_url":"https://github.com/binwiederhier/dabble","homepage":null,"size":1,"stargazers_count":0,"watchers_count":0,"language":null,"has_issues":true,"has_projects":true,"has_downloads":true,"has_wiki":true,"has_pages":false,"has_discussions":false,"forks_count":0,"mirror_url":null,"archived":false,"disabled":false,"open_issues_count":1,"license":null,"allow_forking":true,"is_template":false,"web_commit_signoff_required":false,"topics":[],"visibility":"public","forks":0,"open_issues":1,"watchers":0,"default_branch":"main","allow_squash_merge":true,"allow_merge_commit":true,"allow_rebase_merge":true,"allow_auto_merge":false,"delete_branch_on_merge":false,"allow_update_branch":false,"use_squash_pr_title_as_default":false,"squash_merge_commit_message":"COMMIT_MESSAGES","squash_merge_commit_title":"COMMIT_OR_PR_TITLE","merge_commit_message":"PR_TITLE","merge_commit_title":"MERGE_MESSAGE"}},"base":{"label":"binwiederhier:main","ref":"main","sha":"72d931a20bb83d123ab45accaf761150c8b01211","user":{"login":"binwiederhier","id":664597,"node_id":"MDQ6VXNlcjY2NDU5Nw==","avatar_url":"https://avatars.githubusercontent.com/u/664597?v=4","gravatar_id":"","url":"https://api.github.com/users/binwiederhier","html_url":"https://github.com/binwiederhier","followers_url":"https://api.github.com/users/binwiederhier/followers","following_url":"https://api.github.com/users/binwiederhier/following{/other_user}","gists_url":"https://api.github.com/users/binwiederhier/gists{/gist_id}","starred_url":"https://api.github.com/users/binwiederhier/starred{/owner}{/repo}","subscriptions_url":"https://api.github.com/users/binwiederhier/subscriptions","organizations_url":"https://api.github.com/users/binwiederhier/orgs","repos_url":"https://api.github.com/users/binwiederhier/repos","events_url":"https://api.github.com/users/binwiederhier/events{/privacy}","received_events_url":"https://api.github.com/users/binwiederhier/received_events","type":"User","site_admin":false},"repo":{"id":470212003,"node_id":"R_kgDOHAbdow","name":"dabble","full_name":"binwiederhier/dabble","private":false,"owner":{"login":"binwiederhier","id":664597,"node_id":"MDQ6VXNlcjY2NDU5Nw==","avatar_url":"https://avatars.githubusercontent.com/u/664597?v=4","gravatar_id":"","url":"https://api.github.com/users/binwiederhier","html_url":"https://github.com/binwiederhier","followers_url":"https://api.github.com/users/binwiederhier/followers","following_url":"https://api.github.com/users/binwiederhier/following{/other_user}","gists_url":"https://api.github.com/users/binwiederhier/gists{/gist_id}","starred_url":"https://api.github.com/users/binwiederhier/starred{/owner}{/repo}","subscriptions_url":"https://api.github.com/users/binwiederhier/subscriptions","organizations_url":"https://api.github.com/users/binwiederhier/orgs","repos_url":"https://api.github.com/users/binwiederhier/repos","events_url":"https://api.github.com/users/binwiederhier/events{/privacy}","received_events_url":"https://api.github.com/users/binwiederhier/received_events","type":"User","site_admin":false},"html_url":"https://github.com/binwiederhier/dabble","description":"A repo for dabbling","fork":false,"url":"https://api.github.com/repos/binwiederhier/dabble","forks_url":"https://api.github.com/repos/binwiederhier/dabble/forks","keys_url":"https://api.github.com/repos/binwiederhier/dabble/keys{/key_id}","collaborators_url":"https://api.github.com/repos/binwiederhier/dabble/collaborators{/collaborator}","teams_url":"https://api.github.com/repos/binwiederhier/dabble/teams","hooks_url":"https://api.github.com/repos/binwiederhier/dabble/hooks","issue_events_url":"https://api.github.com/repos/binwiederhier/dabble/issues/events{/number}","events_url":"https://api.github.com/repos/binwiederhier/dabble/events","assignees_url":"https://api.github.com/repos/binwiederhier/dabble/assignees{/user}","branches_url":"https://api.github.com/repos/binwiederhier/dabble/branches{/branch}","tags_url":"https://api.github.com/repos/binwiederhier/dabble/tags","blobs_url":"https://api.github.com/repos/binwiederhier/dabble/git/blobs{/sha}","git_tags_url":"https://api.github.com/repos/binwiederhier/dabble/git/tags{/sha}","git_refs_url":"https://api.github.com/repos/binwiederhier/dabble/git/refs{/sha}","trees_url":"https://api.github.com/repos/binwiederhier/dabble/git/trees{/sha}","statuses_url":"https://api.github.com/repos/binwiederhier/dabble/statuses/{sha}","languages_url":"https://api.github.com/repos/binwiederhier/dabble/languages","stargazers_url":"https://api.github.com/repos/binwiederhier/dabble/stargazers","contributors_url":"https://api.github.com/repos/binwiederhier/dabble/contributors","subscribers_url":"https://api.github.com/repos/binwiederhier/dabble/subscribers","subscription_url":"https://api.github.com/repos/binwiederhier/dabble/subscription","commits_url":"https://api.github.com/repos/binwiederhier/dabble/commits{/sha}","git_commits_url":"https://api.github.com/repos/binwiederhier/dabble/git/commits{/sha}","comments_url":"https://api.github.com/repos/binwiederhier/dabble/comments{/number}","issue_comment_url":"https://api.github.com/repos/binwiederhier/dabble/issues/comments{/number}","contents_url":"https://api.github.com/repos/binwiederhier/dabble/contents/{+path}","compare_url":"https://api.github.com/repos/binwiederhier/dabble/compare/{base}...{head}","merges_url":"https://api.github.com/repos/binwiederhier/dabble/merges","archive_url":"https://api.github.com/repos/binwiederhier/dabble/{archive_format}{/ref}","downloads_url":"https://api.github.com/repos/binwiederhier/dabble/downloads","issues_url":"https://api.github.com/repos/binwiederhier/dabble/issues{/number}","pulls_url":"https://api.github.com/repos/binwiederhier/dabble/pulls{/number}","milestones_url":"https://api.github.com/repos/binwiederhier/dabble/milestones{/number}","notifications_url":"https://api.github.com/repos/binwiederhier/dabble/notifications{?since,all,participating}","labels_url":"https://api.github.com/repos/binwiederhier/dabble/labels{/name}","releases_url":"https://api.github.com/repos/binwiederhier/dabble/releases{/id}","deployments_url":"https://api.github.com/repos/binwiederhier/dabble/deployments","created_at":"2022-03-15T15:06:17Z","updated_at":"2022-03-15T15:06:17Z","pushed_at":"2024-03-21T02:52:10Z","git_url":"git://github.com/binwiederhier/dabble.git","ssh_url":"git@github.com:binwiederhier/dabble.git","clone_url":"https://github.com/binwiederhier/dabble.git","svn_url":"https://github.com/binwiederhier/dabble","homepage":null,"size":1,"stargazers_count":0,"watchers_count":0,"language":null,"has_issues":true,"has_projects":true,"has_downloads":true,"has_wiki":true,"has_pages":false,"has_discussions":false,"forks_count":0,"mirror_url":null,"archived":false,"disabled":false,"open_issues_count":1,"license":null,"allow_forking":true,"is_template":false,"web_commit_signoff_required":false,"topics":[],"visibility":"public","forks":0,"open_issues":1,"watchers":0,"default_branch":"main","allow_squash_merge":true,"allow_merge_commit":true,"allow_rebase_merge":true,"allow_auto_merge":false,"delete_branch_on_merge":false,"allow_update_branch":false,"use_squash_pr_title_as_default":false,"squash_merge_commit_message":"COMMIT_MESSAGES","squash_merge_commit_title":"COMMIT_OR_PR_TITLE","merge_commit_message":"PR_TITLE","merge_commit_title":"MERGE_MESSAGE"}},"_links":{"self":{"href":"https://api.github.com/repos/binwiederhier/dabble/pulls/1"},"html":{"href":"https://github.com/binwiederhier/dabble/pull/1"},"issue":{"href":"https://api.github.com/repos/binwiederhier/dabble/issues/1"},"comments":{"href":"https://api.github.com/repos/binwiederhier/dabble/issues/1/comments"},"review_comments":{"href":"https://api.github.com/repos/binwiederhier/dabble/pulls/1/comments"},"review_comment":{"href":"https://api.github.com/repos/binwiederhier/dabble/pulls/comments{/number}"},"commits":{"href":"https://api.github.com/repos/binwiederhier/dabble/pulls/1/commits"},"statuses":{"href":"https://api.github.com/repos/binwiederhier/dabble/statuses/5703842cc5715ed1e358d23ebb693db09747ae9b"}},"author_association":"OWNER","auto_merge":null,"active_lock_reason":null,"merged":false,"mergeable":null,"rebaseable":null,"mergeable_state":"unknown","merged_by":null,"comments":0,"review_comments":0,"maintainer_can_modify":false,"commits":1,"additions":1,"deletions":1,"changed_files":1},"repository":{"id":470212003,"node_id":"R_kgDOHAbdow","name":"dabble","full_name":"binwiederhier/dabble","private":false,"owner":{"login":"binwiederhier","id":664597,"node_id":"MDQ6VXNlcjY2NDU5Nw==","avatar_url":"https://avatars.githubusercontent.com/u/664597?v=4","gravatar_id":"","url":"https://api.github.com/users/binwiederhier","html_url":"https://github.com/binwiederhier","followers_url":"https://api.github.com/users/binwiederhier/followers","following_url":"https://api.github.com/users/binwiederhier/following{/other_user}","gists_url":"https://api.github.com/users/binwiederhier/gists{/gist_id}","starred_url":"https://api.github.com/users/binwiederhier/starred{/owner}{/repo}","subscriptions_url":"https://api.github.com/users/binwiederhier/subscriptions","organizations_url":"https://api.github.com/users/binwiederhier/orgs","repos_url":"https://api.github.com/users/binwiederhier/repos","events_url":"https://api.github.com/users/binwiederhier/events{/privacy}","received_events_url":"https://api.github.com/users/binwiederhier/received_events","type":"User","site_admin":false},"html_url":"https://github.com/binwiederhier/dabble","description":"A repo for dabbling","fork":false,"url":"https://api.github.com/repos/binwiederhier/dabble","forks_url":"https://api.github.com/repos/binwiederhier/dabble/forks","keys_url":"https://api.github.com/repos/binwiederhier/dabble/keys{/key_id}","collaborators_url":"https://api.github.com/repos/binwiederhier/dabble/collaborators{/collaborator}","teams_url":"https://api.github.com/repos/binwiederhier/dabble/teams","hooks_url":"https://api.github.com/repos/binwiederhier/dabble/hooks","issue_events_url":"https://api.github.com/repos/binwiederhier/dabble/issues/events{/number}","events_url":"https://api.github.com/repos/binwiederhier/dabble/events","assignees_url":"https://api.github.com/repos/binwiederhier/dabble/assignees{/user}","branches_url":"https://api.github.com/repos/binwiederhier/dabble/branches{/branch}","tags_url":"https://api.github.com/repos/binwiederhier/dabble/tags","blobs_url":"https://api.github.com/repos/binwiederhier/dabble/git/blobs{/sha}","git_tags_url":"https://api.github.com/repos/binwiederhier/dabble/git/tags{/sha}","git_refs_url":"https://api.github.com/repos/binwiederhier/dabble/git/refs{/sha}","trees_url":"https://api.github.com/repos/binwiederhier/dabble/git/trees{/sha}","statuses_url":"https://api.github.com/repos/binwiederhier/dabble/statuses/{sha}","languages_url":"https://api.github.com/repos/binwiederhier/dabble/languages","stargazers_url":"https://api.github.com/repos/binwiederhier/dabble/stargazers","contributors_url":"https://api.github.com/repos/binwiederhier/dabble/contributors","subscribers_url":"https://api.github.com/repos/binwiederhier/dabble/subscribers","subscription_url":"https://api.github.com/repos/binwiederhier/dabble/subscription","commits_url":"https://api.github.com/repos/binwiederhier/dabble/commits{/sha}","git_commits_url":"https://api.github.com/repos/binwiederhier/dabble/git/commits{/sha}","comments_url":"https://api.github.com/repos/binwiederhier/dabble/comments{/number}","issue_comment_url":"https://api.github.com/repos/binwiederhier/dabble/issues/comments{/number}","contents_url":"https://api.github.com/repos/binwiederhier/dabble/contents/{+path}","compare_url":"https://api.github.com/repos/binwiederhier/dabble/compare/{base}...{head}","merges_url":"https://api.github.com/repos/binwiederhier/dabble/merges","archive_url":"https://api.github.com/repos/binwiederhier/dabble/{archive_format}{/ref}","downloads_url":"https://api.github.com/repos/binwiederhier/dabble/downloads","issues_url":"https://api.github.com/repos/binwiederhier/dabble/issues{/number}","pulls_url":"https://api.github.com/repos/binwiederhier/dabble/pulls{/number}","milestones_url":"https://api.github.com/repos/binwiederhier/dabble/milestones{/number}","notifications_url":"https://api.github.com/repos/binwiederhier/dabble/notifications{?since,all,participating}","labels_url":"https://api.github.com/repos/binwiederhier/dabble/labels{/name}","releases_url":"https://api.github.com/repos/binwiederhier/dabble/releases{/id}","deployments_url":"https://api.github.com/repos/binwiederhier/dabble/deployments","created_at":"2022-03-15T15:06:17Z","updated_at":"2022-03-15T15:06:17Z","pushed_at":"2024-03-21T02:52:10Z","git_url":"git://github.com/binwiederhier/dabble.git","ssh_url":"git@github.com:binwiederhier/dabble.git","clone_url":"https://github.com/binwiederhier/dabble.git","svn_url":"https://github.com/binwiederhier/dabble","homepage":null,"size":1,"stargazers_count":0,"watchers_count":0,"language":null,"has_issues":true,"has_projects":true,"has_downloads":true,"has_wiki":true,"has_pages":false,"has_discussions":false,"forks_count":0,"mirror_url":null,"archived":false,"disabled":false,"open_issues_count":1,"license":null,"allow_forking":true,"is_template":false,"web_commit_signoff_required":false,"topics":[],"visibility":"public","forks":0,"open_issues":1,"watchers":0,"default_branch":"main"},"sender":{"login":"binwiederhier","id":664597,"node_id":"MDQ6VXNlcjY2NDU5Nw==","avatar_url":"https://avatars.githubusercontent.com/u/664597?v=4","gravatar_id":"","url":"https://api.github.com/users/binwiederhier","html_url":"https://github.com/binwiederhier","followers_url":"https://api.github.com/users/binwiederhier/followers","following_url":"https://api.github.com/users/binwiederhier/following{/other_user}","gists_url":"https://api.github.com/users/binwiederhier/gists{/gist_id}","starred_url":"https://api.github.com/users/binwiederhier/starred{/owner}{/repo}","subscriptions_url":"https://api.github.com/users/binwiederhier/subscriptions","organizations_url":"https://api.github.com/users/binwiederhier/orgs","repos_url":"https://api.github.com/users/binwiederhier/repos","events_url":"https://api.github.com/users/binwiederhier/events{/privacy}","received_events_url":"https://api.github.com/users/binwiederhier/received_events","type":"User","site_admin":false}}`
+	response := request(t, s, "PUT", `/mytopic?tpl=yes&message=[{{.pull_request.head.repo.full_name}}]+Pull+request+{{if+eq+.action+"opened"}}OPENED{{else}}CLOSED{{end}}:+{{.pull_request.title}}`, body, nil)
+	require.Equal(t, 200, response.Code)
+	m := toMessage(t, response.Body.String())
+	require.Equal(t, "", m.Title)
+	require.Equal(t, `[binwiederhier/dabble] Pull request OPENED: A sample PR from Phil`, m.Message)
+}
+
+func TestServer_MessageTemplate_GitHub2(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, newTestConfig(t))
+	body := `{"action":"opened","number":1,"pull_request":{"url":"https://api.github.com/repos/binwiederhier/dabble/pulls/1","id":1783420972,"node_id":"PR_kwDOHAbdo85qTNgs","html_url":"https://github.com/binwiederhier/dabble/pull/1","diff_url":"https://github.com/binwiederhier/dabble/pull/1.diff","patch_url":"https://github.com/binwiederhier/dabble/pull/1.patch","issue_url":"https://api.github.com/repos/binwiederhier/dabble/issues/1","number":1,"state":"open","locked":false,"title":"A sample PR from Phil","user":{"login":"binwiederhier","id":664597,"node_id":"MDQ6VXNlcjY2NDU5Nw==","avatar_url":"https://avatars.githubusercontent.com/u/664597?v=4","gravatar_id":"","url":"https://api.github.com/users/binwiederhier","html_url":"https://github.com/binwiederhier","followers_url":"https://api.github.com/users/binwiederhier/followers","following_url":"https://api.github.com/users/binwiederhier/following{/other_user}","gists_url":"https://api.github.com/users/binwiederhier/gists{/gist_id}","starred_url":"https://api.github.com/users/binwiederhier/starred{/owner}{/repo}","subscriptions_url":"https://api.github.com/users/binwiederhier/subscriptions","organizations_url":"https://api.github.com/users/binwiederhier/orgs","repos_url":"https://api.github.com/users/binwiederhier/repos","events_url":"https://api.github.com/users/binwiederhier/events{/privacy}","received_events_url":"https://api.github.com/users/binwiederhier/received_events","type":"User","site_admin":false},"body":null,"created_at":"2024-03-21T02:52:09Z","updated_at":"2024-03-21T02:52:09Z","closed_at":null,"merged_at":null,"merge_commit_sha":null,"assignee":null,"assignees":[],"requested_reviewers":[],"requested_teams":[],"labels":[],"milestone":null,"draft":false,"commits_url":"https://api.github.com/repos/binwiederhier/dabble/pulls/1/commits","review_comments_url":"https://api.github.com/repos/binwiederhier/dabble/pulls/1/comments","review_comment_url":"https://api.github.com/repos/binwiederhier/dabble/pulls/comments{/number}","comments_url":"https://api.github.com/repos/binwiederhier/dabble/issues/1/comments","statuses_url":"https://api.github.com/repos/binwiederhier/dabble/statuses/5703842cc5715ed1e358d23ebb693db09747ae9b","head":{"label":"binwiederhier:aa","ref":"aa","sha":"5703842cc5715ed1e358d23ebb693db09747ae9b","user":{"login":"binwiederhier","id":664597,"node_id":"MDQ6VXNlcjY2NDU5Nw==","avatar_url":"https://avatars.githubusercontent.com/u/664597?v=4","gravatar_id":"","url":"https://api.github.com/users/binwiederhier","html_url":"https://github.com/binwiederhier","followers_url":"https://api.github.com/users/binwiederhier/followers","following_url":"https://api.github.com/users/binwiederhier/following{/other_user}","gists_url":"https://api.github.com/users/binwiederhier/gists{/gist_id}","starred_url":"https://api.github.com/users/binwiederhier/starred{/owner}{/repo}","subscriptions_url":"https://api.github.com/users/binwiederhier/subscriptions","organizations_url":"https://api.github.com/users/binwiederhier/orgs","repos_url":"https://api.github.com/users/binwiederhier/repos","events_url":"https://api.github.com/users/binwiederhier/events{/privacy}","received_events_url":"https://api.github.com/users/binwiederhier/received_events","type":"User","site_admin":false},"repo":{"id":470212003,"node_id":"R_kgDOHAbdow","name":"dabble","full_name":"binwiederhier/dabble","private":false,"owner":{"login":"binwiederhier","id":664597,"node_id":"MDQ6VXNlcjY2NDU5Nw==","avatar_url":"https://avatars.githubusercontent.com/u/664597?v=4","gravatar_id":"","url":"https://api.github.com/users/binwiederhier","html_url":"https://github.com/binwiederhier","followers_url":"https://api.github.com/users/binwiederhier/followers","following_url":"https://api.github.com/users/binwiederhier/following{/other_user}","gists_url":"https://api.github.com/users/binwiederhier/gists{/gist_id}","starred_url":"https://api.github.com/users/binwiederhier/starred{/owner}{/repo}","subscriptions_url":"https://api.github.com/users/binwiederhier/subscriptions","organizations_url":"https://api.github.com/users/binwiederhier/orgs","repos_url":"https://api.github.com/users/binwiederhier/repos","events_url":"https://api.github.com/users/binwiederhier/events{/privacy}","received_events_url":"https://api.github.com/users/binwiederhier/received_events","type":"User","site_admin":false},"html_url":"https://github.com/binwiederhier/dabble","description":"A repo for dabbling","fork":false,"url":"https://api.github.com/repos/binwiederhier/dabble","forks_url":"https://api.github.com/repos/binwiederhier/dabble/forks","keys_url":"https://api.github.com/repos/binwiederhier/dabble/keys{/key_id}","collaborators_url":"https://api.github.com/repos/binwiederhier/dabble/collaborators{/collaborator}","teams_url":"https://api.github.com/repos/binwiederhier/dabble/teams","hooks_url":"https://api.github.com/repos/binwiederhier/dabble/hooks","issue_events_url":"https://api.github.com/repos/binwiederhier/dabble/issues/events{/number}","events_url":"https://api.github.com/repos/binwiederhier/dabble/events","assignees_url":"https://api.github.com/repos/binwiederhier/dabble/assignees{/user}","branches_url":"https://api.github.com/repos/binwiederhier/dabble/branches{/branch}","tags_url":"https://api.github.com/repos/binwiederhier/dabble/tags","blobs_url":"https://api.github.com/repos/binwiederhier/dabble/git/blobs{/sha}","git_tags_url":"https://api.github.com/repos/binwiederhier/dabble/git/tags{/sha}","git_refs_url":"https://api.github.com/repos/binwiederhier/dabble/git/refs{/sha}","trees_url":"https://api.github.com/repos/binwiederhier/dabble/git/trees{/sha}","statuses_url":"https://api.github.com/repos/binwiederhier/dabble/statuses/{sha}","languages_url":"https://api.github.com/repos/binwiederhier/dabble/languages","stargazers_url":"https://api.github.com/repos/binwiederhier/dabble/stargazers","contributors_url":"https://api.github.com/repos/binwiederhier/dabble/contributors","subscribers_url":"https://api.github.com/repos/binwiederhier/dabble/subscribers","subscription_url":"https://api.github.com/repos/binwiederhier/dabble/subscription","commits_url":"https://api.github.com/repos/binwiederhier/dabble/commits{/sha}","git_commits_url":"https://api.github.com/repos/binwiederhier/dabble/git/commits{/sha}","comments_url":"https://api.github.com/repos/binwiederhier/dabble/comments{/number}","issue_comment_url":"https://api.github.com/repos/binwiederhier/dabble/issues/comments{/number}","contents_url":"https://api.github.com/repos/binwiederhier/dabble/contents/{+path}","compare_url":"https://api.github.com/repos/binwiederhier/dabble/compare/{base}...{head}","merges_url":"https://api.github.com/repos/binwiederhier/dabble/merges","archive_url":"https://api.github.com/repos/binwiederhier/dabble/{archive_format}{/ref}","downloads_url":"https://api.github.com/repos/binwiederhier/dabble/downloads","issues_url":"https://api.github.com/repos/binwiederhier/dabble/issues{/number}","pulls_url":"https://api.github.com/repos/binwiederhier/dabble/pulls{/number}","milestones_url":"https://api.github.com/repos/binwiederhier/dabble/milestones{/number}","notifications_url":"https://api.github.com/repos/binwiederhier/dabble/notifications{?since,all,participating}","labels_url":"https://api.github.com/repos/binwiederhier/dabble/labels{/name}","releases_url":"https://api.github.com/repos/binwiederhier/dabble/releases{/id}","deployments_url":"https://api.github.com/repos/binwiederhier/dabble/deployments","created_at":"2022-03-15T15:06:17Z","updated_at":"2022-03-15T15:06:17Z","pushed_at":"2024-03-21T02:52:10Z","git_url":"git://github.com/binwiederhier/dabble.git","ssh_url":"git@github.com:binwiederhier/dabble.git","clone_url":"https://github.com/binwiederhier/dabble.git","svn_url":"https://github.com/binwiederhier/dabble","homepage":null,"size":1,"stargazers_count":0,"watchers_count":0,"language":null,"has_issues":true,"has_projects":true,"has_downloads":true,"has_wiki":true,"has_pages":false,"has_discussions":false,"forks_count":0,"mirror_url":null,"archived":false,"disabled":false,"open_issues_count":1,"license":null,"allow_forking":true,"is_template":false,"web_commit_signoff_required":false,"topics":[],"visibility":"public","forks":0,"open_issues":1,"watchers":0,"default_branch":"main","allow_squash_merge":true,"allow_merge_commit":true,"allow_rebase_merge":true,"allow_auto_merge":false,"delete_branch_on_merge":false,"allow_update_branch":false,"use_squash_pr_title_as_default":false,"squash_merge_commit_message":"COMMIT_MESSAGES","squash_merge_commit_title":"COMMIT_OR_PR_TITLE","merge_commit_message":"PR_TITLE","merge_commit_title":"MERGE_MESSAGE"}},"base":{"label":"binwiederhier:main","ref":"main","sha":"72d931a20bb83d123ab45accaf761150c8b01211","user":{"login":"binwiederhier","id":664597,"node_id":"MDQ6VXNlcjY2NDU5Nw==","avatar_url":"https://avatars.githubusercontent.com/u/664597?v=4","gravatar_id":"","url":"https://api.github.com/users/binwiederhier","html_url":"https://github.com/binwiederhier","followers_url":"https://api.github.com/users/binwiederhier/followers","following_url":"https://api.github.com/users/binwiederhier/following{/other_user}","gists_url":"https://api.github.com/users/binwiederhier/gists{/gist_id}","starred_url":"https://api.github.com/users/binwiederhier/starred{/owner}{/repo}","subscriptions_url":"https://api.github.com/users/binwiederhier/subscriptions","organizations_url":"https://api.github.com/users/binwiederhier/orgs","repos_url":"https://api.github.com/users/binwiederhier/repos","events_url":"https://api.github.com/users/binwiederhier/events{/privacy}","received_events_url":"https://api.github.com/users/binwiederhier/received_events","type":"User","site_admin":false},"repo":{"id":470212003,"node_id":"R_kgDOHAbdow","name":"dabble","full_name":"binwiederhier/dabble","private":false,"owner":{"login":"binwiederhier","id":664597,"node_id":"MDQ6VXNlcjY2NDU5Nw==","avatar_url":"https://avatars.githubusercontent.com/u/664597?v=4","gravatar_id":"","url":"https://api.github.com/users/binwiederhier","html_url":"https://github.com/binwiederhier","followers_url":"https://api.github.com/users/binwiederhier/followers","following_url":"https://api.github.com/users/binwiederhier/following{/other_user}","gists_url":"https://api.github.com/users/binwiederhier/gists{/gist_id}","starred_url":"https://api.github.com/users/binwiederhier/starred{/owner}{/repo}","subscriptions_url":"https://api.github.com/users/binwiederhier/subscriptions","organizations_url":"https://api.github.com/users/binwiederhier/orgs","repos_url":"https://api.github.com/users/binwiederhier/repos","events_url":"https://api.github.com/users/binwiederhier/events{/privacy}","received_events_url":"https://api.github.com/users/binwiederhier/received_events","type":"User","site_admin":false},"html_url":"https://github.com/binwiederhier/dabble","description":"A repo for dabbling","fork":false,"url":"https://api.github.com/repos/binwiederhier/dabble","forks_url":"https://api.github.com/repos/binwiederhier/dabble/forks","keys_url":"https://api.github.com/repos/binwiederhier/dabble/keys{/key_id}","collaborators_url":"https://api.github.com/repos/binwiederhier/dabble/collaborators{/collaborator}","teams_url":"https://api.github.com/repos/binwiederhier/dabble/teams","hooks_url":"https://api.github.com/repos/binwiederhier/dabble/hooks","issue_events_url":"https://api.github.com/repos/binwiederhier/dabble/issues/events{/number}","events_url":"https://api.github.com/repos/binwiederhier/dabble/events","assignees_url":"https://api.github.com/repos/binwiederhier/dabble/assignees{/user}","branches_url":"https://api.github.com/repos/binwiederhier/dabble/branches{/branch}","tags_url":"https://api.github.com/repos/binwiederhier/dabble/tags","blobs_url":"https://api.github.com/repos/binwiederhier/dabble/git/blobs{/sha}","git_tags_url":"https://api.github.com/repos/binwiederhier/dabble/git/tags{/sha}","git_refs_url":"https://api.github.com/repos/binwiederhier/dabble/git/refs{/sha}","trees_url":"https://api.github.com/repos/binwiederhier/dabble/git/trees{/sha}","statuses_url":"https://api.github.com/repos/binwiederhier/dabble/statuses/{sha}","languages_url":"https://api.github.com/repos/binwiederhier/dabble/languages","stargazers_url":"https://api.github.com/repos/binwiederhier/dabble/stargazers","contributors_url":"https://api.github.com/repos/binwiederhier/dabble/contributors","subscribers_url":"https://api.github.com/repos/binwiederhier/dabble/subscribers","subscription_url":"https://api.github.com/repos/binwiederhier/dabble/subscription","commits_url":"https://api.github.com/repos/binwiederhier/dabble/commits{/sha}","git_commits_url":"https://api.github.com/repos/binwiederhier/dabble/git/commits{/sha}","comments_url":"https://api.github.com/repos/binwiederhier/dabble/comments{/number}","issue_comment_url":"https://api.github.com/repos/binwiederhier/dabble/issues/comments{/number}","contents_url":"https://api.github.com/repos/binwiederhier/dabble/contents/{+path}","compare_url":"https://api.github.com/repos/binwiederhier/dabble/compare/{base}...{head}","merges_url":"https://api.github.com/repos/binwiederhier/dabble/merges","archive_url":"https://api.github.com/repos/binwiederhier/dabble/{archive_format}{/ref}","downloads_url":"https://api.github.com/repos/binwiederhier/dabble/downloads","issues_url":"https://api.github.com/repos/binwiederhier/dabble/issues{/number}","pulls_url":"https://api.github.com/repos/binwiederhier/dabble/pulls{/number}","milestones_url":"https://api.github.com/repos/binwiederhier/dabble/milestones{/number}","notifications_url":"https://api.github.com/repos/binwiederhier/dabble/notifications{?since,all,participating}","labels_url":"https://api.github.com/repos/binwiederhier/dabble/labels{/name}","releases_url":"https://api.github.com/repos/binwiederhier/dabble/releases{/id}","deployments_url":"https://api.github.com/repos/binwiederhier/dabble/deployments","created_at":"2022-03-15T15:06:17Z","updated_at":"2022-03-15T15:06:17Z","pushed_at":"2024-03-21T02:52:10Z","git_url":"git://github.com/binwiederhier/dabble.git","ssh_url":"git@github.com:binwiederhier/dabble.git","clone_url":"https://github.com/binwiederhier/dabble.git","svn_url":"https://github.com/binwiederhier/dabble","homepage":null,"size":1,"stargazers_count":0,"watchers_count":0,"language":null,"has_issues":true,"has_projects":true,"has_downloads":true,"has_wiki":true,"has_pages":false,"has_discussions":false,"forks_count":0,"mirror_url":null,"archived":false,"disabled":false,"open_issues_count":1,"license":null,"allow_forking":true,"is_template":false,"web_commit_signoff_required":false,"topics":[],"visibility":"public","forks":0,"open_issues":1,"watchers":0,"default_branch":"main","allow_squash_merge":true,"allow_merge_commit":true,"allow_rebase_merge":true,"allow_auto_merge":false,"delete_branch_on_merge":false,"allow_update_branch":false,"use_squash_pr_title_as_default":false,"squash_merge_commit_message":"COMMIT_MESSAGES","squash_merge_commit_title":"COMMIT_OR_PR_TITLE","merge_commit_message":"PR_TITLE","merge_commit_title":"MERGE_MESSAGE"}},"_links":{"self":{"href":"https://api.github.com/repos/binwiederhier/dabble/pulls/1"},"html":{"href":"https://github.com/binwiederhier/dabble/pull/1"},"issue":{"href":"https://api.github.com/repos/binwiederhier/dabble/issues/1"},"comments":{"href":"https://api.github.com/repos/binwiederhier/dabble/issues/1/comments"},"review_comments":{"href":"https://api.github.com/repos/binwiederhier/dabble/pulls/1/comments"},"review_comment":{"href":"https://api.github.com/repos/binwiederhier/dabble/pulls/comments{/number}"},"commits":{"href":"https://api.github.com/repos/binwiederhier/dabble/pulls/1/commits"},"statuses":{"href":"https://api.github.com/repos/binwiederhier/dabble/statuses/5703842cc5715ed1e358d23ebb693db09747ae9b"}},"author_association":"OWNER","auto_merge":null,"active_lock_reason":null,"merged":false,"mergeable":null,"rebaseable":null,"mergeable_state":"unknown","merged_by":null,"comments":0,"review_comments":0,"maintainer_can_modify":false,"commits":1,"additions":1,"deletions":1,"changed_files":1},"repository":{"id":470212003,"node_id":"R_kgDOHAbdow","name":"dabble","full_name":"binwiederhier/dabble","private":false,"owner":{"login":"binwiederhier","id":664597,"node_id":"MDQ6VXNlcjY2NDU5Nw==","avatar_url":"https://avatars.githubusercontent.com/u/664597?v=4","gravatar_id":"","url":"https://api.github.com/users/binwiederhier","html_url":"https://github.com/binwiederhier","followers_url":"https://api.github.com/users/binwiederhier/followers","following_url":"https://api.github.com/users/binwiederhier/following{/other_user}","gists_url":"https://api.github.com/users/binwiederhier/gists{/gist_id}","starred_url":"https://api.github.com/users/binwiederhier/starred{/owner}{/repo}","subscriptions_url":"https://api.github.com/users/binwiederhier/subscriptions","organizations_url":"https://api.github.com/users/binwiederhier/orgs","repos_url":"https://api.github.com/users/binwiederhier/repos","events_url":"https://api.github.com/users/binwiederhier/events{/privacy}","received_events_url":"https://api.github.com/users/binwiederhier/received_events","type":"User","site_admin":false},"html_url":"https://github.com/binwiederhier/dabble","description":"A repo for dabbling","fork":false,"url":"https://api.github.com/repos/binwiederhier/dabble","forks_url":"https://api.github.com/repos/binwiederhier/dabble/forks","keys_url":"https://api.github.com/repos/binwiederhier/dabble/keys{/key_id}","collaborators_url":"https://api.github.com/repos/binwiederhier/dabble/collaborators{/collaborator}","teams_url":"https://api.github.com/repos/binwiederhier/dabble/teams","hooks_url":"https://api.github.com/repos/binwiederhier/dabble/hooks","issue_events_url":"https://api.github.com/repos/binwiederhier/dabble/issues/events{/number}","events_url":"https://api.github.com/repos/binwiederhier/dabble/events","assignees_url":"https://api.github.com/repos/binwiederhier/dabble/assignees{/user}","branches_url":"https://api.github.com/repos/binwiederhier/dabble/branches{/branch}","tags_url":"https://api.github.com/repos/binwiederhier/dabble/tags","blobs_url":"https://api.github.com/repos/binwiederhier/dabble/git/blobs{/sha}","git_tags_url":"https://api.github.com/repos/binwiederhier/dabble/git/tags{/sha}","git_refs_url":"https://api.github.com/repos/binwiederhier/dabble/git/refs{/sha}","trees_url":"https://api.github.com/repos/binwiederhier/dabble/git/trees{/sha}","statuses_url":"https://api.github.com/repos/binwiederhier/dabble/statuses/{sha}","languages_url":"https://api.github.com/repos/binwiederhier/dabble/languages","stargazers_url":"https://api.github.com/repos/binwiederhier/dabble/stargazers","contributors_url":"https://api.github.com/repos/binwiederhier/dabble/contributors","subscribers_url":"https://api.github.com/repos/binwiederhier/dabble/subscribers","subscription_url":"https://api.github.com/repos/binwiederhier/dabble/subscription","commits_url":"https://api.github.com/repos/binwiederhier/dabble/commits{/sha}","git_commits_url":"https://api.github.com/repos/binwiederhier/dabble/git/commits{/sha}","comments_url":"https://api.github.com/repos/binwiederhier/dabble/comments{/number}","issue_comment_url":"https://api.github.com/repos/binwiederhier/dabble/issues/comments{/number}","contents_url":"https://api.github.com/repos/binwiederhier/dabble/contents/{+path}","compare_url":"https://api.github.com/repos/binwiederhier/dabble/compare/{base}...{head}","merges_url":"https://api.github.com/repos/binwiederhier/dabble/merges","archive_url":"https://api.github.com/repos/binwiederhier/dabble/{archive_format}{/ref}","downloads_url":"https://api.github.com/repos/binwiederhier/dabble/downloads","issues_url":"https://api.github.com/repos/binwiederhier/dabble/issues{/number}","pulls_url":"https://api.github.com/repos/binwiederhier/dabble/pulls{/number}","milestones_url":"https://api.github.com/repos/binwiederhier/dabble/milestones{/number}","notifications_url":"https://api.github.com/repos/binwiederhier/dabble/notifications{?since,all,participating}","labels_url":"https://api.github.com/repos/binwiederhier/dabble/labels{/name}","releases_url":"https://api.github.com/repos/binwiederhier/dabble/releases{/id}","deployments_url":"https://api.github.com/repos/binwiederhier/dabble/deployments","created_at":"2022-03-15T15:06:17Z","updated_at":"2022-03-15T15:06:17Z","pushed_at":"2024-03-21T02:52:10Z","git_url":"git://github.com/binwiederhier/dabble.git","ssh_url":"git@github.com:binwiederhier/dabble.git","clone_url":"https://github.com/binwiederhier/dabble.git","svn_url":"https://github.com/binwiederhier/dabble","homepage":null,"size":1,"stargazers_count":0,"watchers_count":0,"language":null,"has_issues":true,"has_projects":true,"has_downloads":true,"has_wiki":true,"has_pages":false,"has_discussions":false,"forks_count":0,"mirror_url":null,"archived":false,"disabled":false,"open_issues_count":1,"license":null,"allow_forking":true,"is_template":false,"web_commit_signoff_required":false,"topics":[],"visibility":"public","forks":0,"open_issues":1,"watchers":0,"default_branch":"main"},"sender":{"login":"binwiederhier","id":664597,"node_id":"MDQ6VXNlcjY2NDU5Nw==","avatar_url":"https://avatars.githubusercontent.com/u/664597?v=4","gravatar_id":"","url":"https://api.github.com/users/binwiederhier","html_url":"https://github.com/binwiederhier","followers_url":"https://api.github.com/users/binwiederhier/followers","following_url":"https://api.github.com/users/binwiederhier/following{/other_user}","gists_url":"https://api.github.com/users/binwiederhier/gists{/gist_id}","starred_url":"https://api.github.com/users/binwiederhier/starred{/owner}{/repo}","subscriptions_url":"https://api.github.com/users/binwiederhier/subscriptions","organizations_url":"https://api.github.com/users/binwiederhier/orgs","repos_url":"https://api.github.com/users/binwiederhier/repos","events_url":"https://api.github.com/users/binwiederhier/events{/privacy}","received_events_url":"https://api.github.com/users/binwiederhier/received_events","type":"User","site_admin":false}}`
+	response := request(t, s, "PUT", `/mytopic?tpl=yes&title={{if+eq+.action+"opened"}}New+PR:+%23{{.number}}+by+{{.pull_request.user.login}}{{else}}[{{.action}}]+PR:+%23{{.number}}+by+{{.pull_request.user.login}}{{end}}&message={{.pull_request.title}}+in+{{.repository.full_name}}.+View+more+at+{{.pull_request.html_url}}`, body, nil)
+	require.Equal(t, 200, response.Code)
+	m := toMessage(t, response.Body.String())
+	require.Equal(t, `New PR: #1 by binwiederhier`, m.Title)
+	require.Equal(t, `A sample PR from Phil in binwiederhier/dabble. View more at https://github.com/binwiederhier/dabble/pull/1`, m.Message)
+}
+
+func TestServer_MessageTemplate_DisallowedCalls(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, newTestConfig(t))
+	disallowedTemplates := []string{
+		`{{template ""}}`,
+		`{{- template ""}}`,
+		`{{-
+template ""}}`,
+		`{{      call abc}}`,
+		`{{      define "aa"}}`,
+		`We cannot {{define "aa"}}`,
+		`We cannot {{ call "aa"}}`,
+		`We cannot {{- template "aa"}}`,
+	}
+	for _, disallowedTemplate := range disallowedTemplates {
+		messageTemplate := disallowedTemplate
+		t.Run(disallowedTemplate, func(t *testing.T) {
+			t.Parallel()
+			response := request(t, s, "PUT", `/mytopic`, `{}`, map[string]string{
+				"Template": "yes",
+				"Message":  messageTemplate,
+			})
+			require.Equal(t, 400, response.Code)
+			require.Equal(t, 40044, toHTTPError(t, response.Body.String()).Code)
+		})
+	}
 }
 
 func newTestConfig(t *testing.T) *Config {

@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"text/template"
 	"time"
 	"unicode/utf8"
 
@@ -123,15 +124,22 @@ var (
 
 const (
 	firebaseControlTopic     = "~control"                // See Android if changed
-	firebasePollTopic        = "~poll"                   // See iOS if changed
+	firebasePollTopic        = "~poll"                   // See iOS if changed (DISABLED for now)
 	emptyMessageBody         = "triggered"               // Used if message body is empty
 	newMessageBody           = "New message"             // Used in poll requests as generic message
 	defaultAttachmentMessage = "You received a file: %s" // Used if message body is empty, and there is an attachment
 	encodingBase64           = "base64"                  // Used mainly for binary UnifiedPush messages
-	jsonBodyBytesLimit       = 16384                     // Max number of bytes for a JSON request body
+	jsonBodyBytesLimit       = 32768                     // Max number of bytes for a request bodys (unless MessageLimit is higher)
 	unifiedPushTopicPrefix   = "up"                      // Temporarily, we rate limit all "up*" topics based on the subscriber
 	unifiedPushTopicLength   = 14                        // Length of UnifiedPush topics, including the "up" part
 	messagesHistoryMax       = 10                        // Number of message count values to keep in memory
+	templateMaxExecutionTime = 100 * time.Millisecond
+)
+
+var (
+	// templateDisallowedRegex tests a template for disallowed expressions. While not really dangerous, they
+	// are not useful, and seem potentially troublesome.
+	templateDisallowedRegex = regexp.MustCompile(`(?m)\{\{-?\s*(call|template|define)\b`)
 )
 
 // WebSocket constants
@@ -673,7 +681,7 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request, v *visitor) 
 	//   - avoid abuse (e.g. 1 uploader, 1k downloaders)
 	//   - and also uses the higher bandwidth limits of a paying user
 	m, err := s.messageCache.Message(messageID)
-	if err == errMessageNotFound {
+	if errors.Is(err, errMessageNotFound) {
 		if s.config.CacheBatchTimeout > 0 {
 			// Strange edge case: If we immediately after upload request the file (the web app does this for images),
 			// and messages are persisted asynchronously, retry fetching from the database
@@ -733,18 +741,18 @@ func (s *Server) handlePublishInternal(r *http.Request, v *visitor) (*message, e
 	if err != nil {
 		return nil, err
 	}
-	body, err := util.Peek(r.Body, s.config.MessageLimit)
+	body, err := util.Peek(r.Body, s.config.MessageSizeLimit)
 	if err != nil {
 		return nil, err
 	}
 	m := newDefaultMessage(t.ID, "")
-	cache, firebase, email, call, unifiedpush, e := s.parsePublishParams(r, m)
+	cache, firebase, email, call, template, unifiedpush, e := s.parsePublishParams(r, m)
 	if e != nil {
 		return nil, e.With(t)
 	}
 	if unifiedpush && s.config.VisitorSubscriberRateLimiting && t.RateVisitor() == nil {
-		// UnifiedPush clients must subscribe before publishing to allow proper subscriber-based rate limiting (see
-		// Rate-Topics header). The 5xx response is because some app servers (in particular Mastodon) will remove
+		// UnifiedPush clients must subscribe before publishing to allow proper subscriber-based rate limiting.
+		// The 5xx response is because some app servers (in particular Mastodon) will remove
 		// the subscription as invalid if any 400-499 code (except 429/408) is returned.
 		// See https://github.com/mastodon/mastodon/blob/730bb3e211a84a2f30e3e2bbeae3f77149824a68/app/workers/web/push_notification_worker.rb#L35-L46
 		return nil, errHTTPInsufficientStorageUnifiedPush.With(t)
@@ -769,7 +777,7 @@ func (s *Server) handlePublishInternal(r *http.Request, v *visitor) (*message, e
 	if cache {
 		m.Expires = time.Unix(m.Time, 0).Add(v.Limits().MessageExpiryDuration).Unix()
 	}
-	if err := s.handlePublishBody(r, v, m, body, unifiedpush); err != nil {
+	if err := s.handlePublishBody(r, v, m, body, template, unifiedpush); err != nil {
 		return nil, err
 	}
 	if m.Message == "" {
@@ -872,7 +880,7 @@ func (s *Server) sendToFirebase(v *visitor, m *message) {
 	logvm(v, m).Tag(tagFirebase).Debug("Publishing to Firebase")
 	if err := s.firebaseClient.Send(v, m); err != nil {
 		minc(metricFirebasePublishedFailure)
-		if err == errFirebaseTemporarilyBanned {
+		if errors.Is(err, errFirebaseTemporarilyBanned) {
 			logvm(v, m).Tag(tagFirebase).Err(err).Debug("Unable to publish to Firebase: %v", err.Error())
 		} else {
 			logvm(v, m).Tag(tagFirebase).Err(err).Warn("Unable to publish to Firebase: %v", err.Error())
@@ -924,7 +932,7 @@ func (s *Server) forwardPollRequest(v *visitor, m *message) {
 	}
 }
 
-func (s *Server) parsePublishParams(r *http.Request, m *message) (cache bool, firebase bool, email, call string, unifiedpush bool, err *errHTTP) {
+func (s *Server) parsePublishParams(r *http.Request, m *message) (cache bool, firebase bool, email, call string, template bool, unifiedpush bool, err *errHTTP) {
 	cache = readBoolParam(r, true, "x-cache", "cache")
 	firebase = readBoolParam(r, true, "x-firebase", "firebase")
 	m.Title = readParam(r, "x-title", "title", "t")
@@ -940,7 +948,7 @@ func (s *Server) parsePublishParams(r *http.Request, m *message) (cache bool, fi
 	}
 	if attach != "" {
 		if !urlRegex.MatchString(attach) {
-			return false, false, "", "", false, errHTTPBadRequestAttachmentURLInvalid
+			return false, false, "", "", false, false, errHTTPBadRequestAttachmentURLInvalid
 		}
 		m.Attachment.URL = attach
 		if m.Attachment.Name == "" {
@@ -958,19 +966,19 @@ func (s *Server) parsePublishParams(r *http.Request, m *message) (cache bool, fi
 	}
 	if icon != "" {
 		if !urlRegex.MatchString(icon) {
-			return false, false, "", "", false, errHTTPBadRequestIconURLInvalid
+			return false, false, "", "", false, false, errHTTPBadRequestIconURLInvalid
 		}
 		m.Icon = icon
 	}
 	email = readParam(r, "x-email", "x-e-mail", "email", "e-mail", "mail", "e")
 	if s.smtpSender == nil && email != "" {
-		return false, false, "", "", false, errHTTPBadRequestEmailDisabled
+		return false, false, "", "", false, false, errHTTPBadRequestEmailDisabled
 	}
 	call = readParam(r, "x-call", "call")
 	if call != "" && (s.config.TwilioAccount == "" || s.userManager == nil) {
-		return false, false, "", "", false, errHTTPBadRequestPhoneCallsDisabled
+		return false, false, "", "", false, false, errHTTPBadRequestPhoneCallsDisabled
 	} else if call != "" && !isBoolValue(call) && !phoneNumberRegex.MatchString(call) {
-		return false, false, "", "", false, errHTTPBadRequestPhoneNumberInvalid
+		return false, false, "", "", false, false, errHTTPBadRequestPhoneNumberInvalid
 	}
 	messageStr := strings.ReplaceAll(readParam(r, "x-message", "message", "m"), "\\n", "\n")
 	if messageStr != "" {
@@ -979,27 +987,27 @@ func (s *Server) parsePublishParams(r *http.Request, m *message) (cache bool, fi
 	var e error
 	m.Priority, e = util.ParsePriority(readParam(r, "x-priority", "priority", "prio", "p"))
 	if e != nil {
-		return false, false, "", "", false, errHTTPBadRequestPriorityInvalid
+		return false, false, "", "", false, false, errHTTPBadRequestPriorityInvalid
 	}
 	m.Tags = readCommaSeparatedParam(r, "x-tags", "tags", "tag", "ta")
 	delayStr := readParam(r, "x-delay", "delay", "x-at", "at", "x-in", "in")
 	if delayStr != "" {
 		if !cache {
-			return false, false, "", "", false, errHTTPBadRequestDelayNoCache
+			return false, false, "", "", false, false, errHTTPBadRequestDelayNoCache
 		}
 		if email != "" {
-			return false, false, "", "", false, errHTTPBadRequestDelayNoEmail // we cannot store the email address (yet)
+			return false, false, "", "", false, false, errHTTPBadRequestDelayNoEmail // we cannot store the email address (yet)
 		}
 		if call != "" {
-			return false, false, "", "", false, errHTTPBadRequestDelayNoCall // we cannot store the phone number (yet)
+			return false, false, "", "", false, false, errHTTPBadRequestDelayNoCall // we cannot store the phone number (yet)
 		}
 		delay, err := util.ParseFutureTime(delayStr, time.Now())
 		if err != nil {
-			return false, false, "", "", false, errHTTPBadRequestDelayCannotParse
-		} else if delay.Unix() < time.Now().Add(s.config.MinDelay).Unix() {
-			return false, false, "", "", false, errHTTPBadRequestDelayTooSmall
-		} else if delay.Unix() > time.Now().Add(s.config.MaxDelay).Unix() {
-			return false, false, "", "", false, errHTTPBadRequestDelayTooLarge
+			return false, false, "", "", false, false, errHTTPBadRequestDelayCannotParse
+		} else if delay.Unix() < time.Now().Add(s.config.MessageDelayMin).Unix() {
+			return false, false, "", "", false, false, errHTTPBadRequestDelayTooSmall
+		} else if delay.Unix() > time.Now().Add(s.config.MessageDelayMax).Unix() {
+			return false, false, "", "", false, false, errHTTPBadRequestDelayTooLarge
 		}
 		m.Time = delay.Unix()
 	}
@@ -1007,13 +1015,14 @@ func (s *Server) parsePublishParams(r *http.Request, m *message) (cache bool, fi
 	if actionsStr != "" {
 		m.Actions, e = parseActions(actionsStr)
 		if e != nil {
-			return false, false, "", "", false, errHTTPBadRequestActionsInvalid.Wrap(e.Error())
+			return false, false, "", "", false, false, errHTTPBadRequestActionsInvalid.Wrap(e.Error())
 		}
 	}
 	contentType, markdown := readParam(r, "content-type", "content_type"), readBoolParam(r, false, "x-markdown", "markdown", "md")
 	if markdown || strings.ToLower(contentType) == "text/markdown" {
 		m.ContentType = "text/markdown"
 	}
+	template = readBoolParam(r, false, "x-template", "template", "tpl")
 	unifiedpush = readBoolParam(r, false, "x-unifiedpush", "unifiedpush", "up") // see GET too!
 	if unifiedpush {
 		firebase = false
@@ -1025,7 +1034,7 @@ func (s *Server) parsePublishParams(r *http.Request, m *message) (cache bool, fi
 		cache = false
 		email = ""
 	}
-	return cache, firebase, email, call, unifiedpush, nil
+	return cache, firebase, email, call, template, unifiedpush, nil
 }
 
 // handlePublishBody consumes the PUT/POST body and decides whether the body is an attachment or the message.
@@ -1033,16 +1042,18 @@ func (s *Server) parsePublishParams(r *http.Request, m *message) (cache bool, fi
 //  1. curl -X POST -H "Poll: 1234" ntfy.sh/...
 //     If a message is flagged as poll request, the body does not matter and is discarded
 //  2. curl -T somebinarydata.bin "ntfy.sh/mytopic?up=1"
-//     If body is binary, encode as base64, if not do not encode
+//     If UnifiedPush is enabled, encode as base64 if body is binary, and do not trim
 //  3. curl -H "Attach: http://example.com/file.jpg" ntfy.sh/mytopic
 //     Body must be a message, because we attached an external URL
 //  4. curl -T short.txt -H "Filename: short.txt" ntfy.sh/mytopic
 //     Body must be attachment, because we passed a filename
-//  5. curl -T file.txt ntfy.sh/mytopic
-//     If file.txt is <= 4096 (message limit) and valid UTF-8, treat it as a message
+//  5. curl -H "Template: yes" -T file.txt ntfy.sh/mytopic
+//     If templating is enabled, read up to 32k and treat message body as JSON
 //  6. curl -T file.txt ntfy.sh/mytopic
-//     If file.txt is > message limit, treat it as an attachment
-func (s *Server) handlePublishBody(r *http.Request, v *visitor, m *message, body *util.PeekedReadCloser, unifiedpush bool) error {
+//     If file.txt is <= 4096 (message limit) and valid UTF-8, treat it as a message
+//  7. curl -T file.txt ntfy.sh/mytopic
+//     In all other cases, mostly if file.txt is > message limit, treat it as an attachment
+func (s *Server) handlePublishBody(r *http.Request, v *visitor, m *message, body *util.PeekedReadCloser, template, unifiedpush bool) error {
 	if m.Event == pollRequestEvent { // Case 1
 		return s.handleBodyDiscard(body)
 	} else if unifiedpush {
@@ -1051,10 +1062,12 @@ func (s *Server) handlePublishBody(r *http.Request, v *visitor, m *message, body
 		return s.handleBodyAsTextMessage(m, body) // Case 3
 	} else if m.Attachment != nil && m.Attachment.Name != "" {
 		return s.handleBodyAsAttachment(r, v, m, body) // Case 4
+	} else if template {
+		return s.handleBodyAsTemplatedTextMessage(m, body) // Case 5
 	} else if !body.LimitReached && utf8.Valid(body.PeekedBytes) {
-		return s.handleBodyAsTextMessage(m, body) // Case 5
+		return s.handleBodyAsTextMessage(m, body) // Case 6
 	}
-	return s.handleBodyAsAttachment(r, v, m, body) // Case 6
+	return s.handleBodyAsAttachment(r, v, m, body) // Case 7
 }
 
 func (s *Server) handleBodyDiscard(body *util.PeekedReadCloser) error {
@@ -1084,6 +1097,45 @@ func (s *Server) handleBodyAsTextMessage(m *message, body *util.PeekedReadCloser
 		m.Message = fmt.Sprintf(defaultAttachmentMessage, m.Attachment.Name)
 	}
 	return nil
+}
+
+func (s *Server) handleBodyAsTemplatedTextMessage(m *message, body *util.PeekedReadCloser) error {
+	body, err := util.Peek(body, max(s.config.MessageSizeLimit, jsonBodyBytesLimit))
+	if err != nil {
+		return err
+	} else if body.LimitReached {
+		return errHTTPEntityTooLargeJSONBody
+	}
+	peekedBody := strings.TrimSpace(string(body.PeekedBytes))
+	if m.Message, err = replaceTemplate(m.Message, peekedBody); err != nil {
+		return err
+	}
+	if m.Title, err = replaceTemplate(m.Title, peekedBody); err != nil {
+		return err
+	}
+	if len(m.Message) > s.config.MessageSizeLimit {
+		return errHTTPBadRequestTemplateMessageTooLarge
+	}
+	return nil
+}
+
+func replaceTemplate(tpl string, source string) (string, error) {
+	if templateDisallowedRegex.MatchString(tpl) {
+		return "", errHTTPBadRequestTemplateDisallowedFunctionCalls
+	}
+	var data any
+	if err := json.Unmarshal([]byte(source), &data); err != nil {
+		return "", errHTTPBadRequestTemplateMessageNotJSON
+	}
+	t, err := template.New("").Parse(tpl)
+	if err != nil {
+		return "", errHTTPBadRequestTemplateInvalid
+	}
+	var buf bytes.Buffer
+	if err := t.Execute(util.NewTimeoutWriter(&buf, templateMaxExecutionTime), data); err != nil {
+		return "", errHTTPBadRequestTemplateExecuteFailed
+	}
+	return buf.String(), nil
 }
 
 func (s *Server) handleBodyAsAttachment(r *http.Request, v *visitor, m *message, body *util.PeekedReadCloser) error {
@@ -1128,7 +1180,7 @@ func (s *Server) handleBodyAsAttachment(r *http.Request, v *visitor, m *message,
 		util.NewFixedLimiter(vinfo.Stats.AttachmentTotalSizeRemaining),
 	}
 	m.Attachment.Size, err = s.fileCache.Write(m.ID, body, limiters...)
-	if err == util.ErrLimitReached {
+	if errors.Is(err, util.ErrLimitReached) {
 		return errHTTPEntityTooLargeAttachment.With(m)
 	} else if err != nil {
 		return err
@@ -1182,7 +1234,7 @@ func (s *Server) handleSubscribeHTTP(w http.ResponseWriter, r *http.Request, v *
 	if err != nil {
 		return err
 	}
-	poll, since, scheduled, filters, rateTopics, err := parseSubscribeParams(r)
+	poll, since, scheduled, filters, err := parseSubscribeParams(r)
 	if err != nil {
 		return err
 	}
@@ -1212,7 +1264,7 @@ func (s *Server) handleSubscribeHTTP(w http.ResponseWriter, r *http.Request, v *
 		}
 		return nil
 	}
-	if err := s.maybeSetRateVisitors(r, v, topics, rateTopics); err != nil {
+	if err := s.maybeSetRateVisitors(r, v, topics); err != nil {
 		return err
 	}
 	w.Header().Set("Access-Control-Allow-Origin", s.config.AccessControlAllowOrigin) // CORS, allow cross-origin requests
@@ -1278,7 +1330,7 @@ func (s *Server) handleSubscribeWS(w http.ResponseWriter, r *http.Request, v *vi
 	if err != nil {
 		return err
 	}
-	poll, since, scheduled, filters, rateTopics, err := parseSubscribeParams(r)
+	poll, since, scheduled, filters, err := parseSubscribeParams(r)
 	if err != nil {
 		return err
 	}
@@ -1364,7 +1416,7 @@ func (s *Server) handleSubscribeWS(w http.ResponseWriter, r *http.Request, v *vi
 		}
 		return conn.WriteJSON(msg)
 	}
-	if err := s.maybeSetRateVisitors(r, v, topics, rateTopics); err != nil {
+	if err := s.maybeSetRateVisitors(r, v, topics); err != nil {
 		return err
 	}
 	w.Header().Set("Access-Control-Allow-Origin", s.config.AccessControlAllowOrigin) // CORS, allow cross-origin requests
@@ -1397,7 +1449,7 @@ func (s *Server) handleSubscribeWS(w http.ResponseWriter, r *http.Request, v *vi
 	return err
 }
 
-func parseSubscribeParams(r *http.Request) (poll bool, since sinceMarker, scheduled bool, filters *queryFilter, rateTopics []string, err error) {
+func parseSubscribeParams(r *http.Request) (poll bool, since sinceMarker, scheduled bool, filters *queryFilter, err error) {
 	poll = readBoolParam(r, false, "x-poll", "poll", "po")
 	scheduled = readBoolParam(r, false, "x-scheduled", "scheduled", "sched")
 	since, err = parseSince(r, poll)
@@ -1408,7 +1460,6 @@ func parseSubscribeParams(r *http.Request) (poll bool, since sinceMarker, schedu
 	if err != nil {
 		return
 	}
-	rateTopics = readCommaSeparatedParam(r, "x-rate-topics", "rate-topics")
 	return
 }
 
@@ -1420,9 +1471,8 @@ func parseSubscribeParams(r *http.Request) (poll bool, since sinceMarker, schedu
 // - or the topic is reserved, and v.user is the owner
 // - or the topic is not reserved, and v.user has write access
 //
-// Note: This TEMPORARILY also registers all topics starting with "up" (= UnifiedPush). This is to ease the transition
-// until the Android app will send the "Rate-Topics" header.
-func (s *Server) maybeSetRateVisitors(r *http.Request, v *visitor, topics []*topic, rateTopics []string) error {
+// This only applies to UnifiedPush topics ("up...").
+func (s *Server) maybeSetRateVisitors(r *http.Request, v *visitor, topics []*topic) error {
 	// Bail out if not enabled
 	if !s.config.VisitorSubscriberRateLimiting {
 		return nil
@@ -1431,7 +1481,7 @@ func (s *Server) maybeSetRateVisitors(r *http.Request, v *visitor, topics []*top
 	// Make a list of topics that we'll actually set the RateVisitor on
 	eligibleRateTopics := make([]*topic, 0)
 	for _, t := range topics {
-		if (strings.HasPrefix(t.ID, unifiedPushTopicPrefix) && len(t.ID) == unifiedPushTopicLength) || util.Contains(rateTopics, t.ID) {
+		if strings.HasPrefix(t.ID, unifiedPushTopicPrefix) && len(t.ID) == unifiedPushTopicLength {
 			eligibleRateTopics = append(eligibleRateTopics, t)
 		}
 	}
@@ -1756,7 +1806,7 @@ func (s *Server) sendDelayedMessage(v *visitor, m *message) error {
 // before passing it on to the next handler. This is meant to be used in combination with handlePublish.
 func (s *Server) transformBodyJSON(next handleFunc) handleFunc {
 	return func(w http.ResponseWriter, r *http.Request, v *visitor) error {
-		m, err := readJSONWithLimit[publishMessage](r.Body, s.config.MessageLimit*2, false) // 2x to account for JSON format overhead
+		m, err := readJSONWithLimit[publishMessage](r.Body, s.config.MessageSizeLimit*2, false) // 2x to account for JSON format overhead
 		if err != nil {
 			return err
 		}
@@ -1814,7 +1864,7 @@ func (s *Server) transformBodyJSON(next handleFunc) handleFunc {
 
 func (s *Server) transformMatrixJSON(next handleFunc) handleFunc {
 	return func(w http.ResponseWriter, r *http.Request, v *visitor) error {
-		newRequest, err := newRequestFromMatrixJSON(r, s.config.BaseURL, s.config.MessageLimit)
+		newRequest, err := newRequestFromMatrixJSON(r, s.config.BaseURL, s.config.MessageSizeLimit)
 		if err != nil {
 			logvr(v, r).Tag(tagMatrix).Err(err).Debug("Invalid Matrix request")
 			if e, ok := err.(*errMatrixPushkeyRejected); ok {
